@@ -1,6 +1,7 @@
 'use strict'
 const assert = require('node:assert/strict')
 const fs = require('node:fs/promises'), os = require('node:os'), path = require('node:path'), http = require('node:http')
+const { PassThrough } = require('node:stream')
 const { test } = require('node:test'), { build } = require('esbuild')
 const root = path.resolve(__dirname, '..')
 const evidenceDir = path.join(root, 'out/stable-prefix')
@@ -35,6 +36,28 @@ function common(a, b) {
   return { utf8Bytes: bytes, leftUtf8Bytes: left.length, rightUtf8Bytes: right.length }
 }
 function checkpoint(request) { return request.messages.find(message => message.content?.startsWith('## 会话历史原文摘录'))?.content ?? null }
+function requestText(req) {
+  return new Promise((resolve, reject) => {
+    // TCP chunks can split a Chinese/supplementary character. Decode as one
+    // UTF-8 stream, not each Buffer separately during string concatenation.
+    req.setEncoding('utf8')
+    let text = ''
+    req.on('data', part => { text += part })
+    req.once('end', () => resolve(text))
+    req.once('error', reject)
+  })
+}
+
+test('HTTP fixture preserves exact JSON when UTF-8 request bytes split at every boundary', async () => {
+  const text = JSON.stringify({ messages: [{ role: 'user', content: '更正：标记改为蓝色𠮷。' }], tools: [{ function: { name: 'update_work_plan', description: '当前任务有多项交付或依赖时，记录工作清单。' } }] })
+  const bytes = Buffer.from(text, 'utf8')
+  for (let split = 1; split < bytes.length; split++) {
+    const stream = new PassThrough(), body = requestText(stream)
+    stream.write(bytes.subarray(0, split)); stream.end(bytes.subarray(split))
+    assert.equal(await body, text, `HTTP fixture must preserve UTF-8 across byte boundary ${split}`)
+  }
+})
+
 function seed(repo, session, long, correction) {
   repo.createSession(session, 'Same visible title', 'stable-prefix-fixture')
   if (!long) return
@@ -48,8 +71,9 @@ async function run(api, home, variant, { long = true, correction = false, prompt
   repo.createSession('other-session', 'Same visible title', 'stable-prefix-fixture')
   repo.appendSessionMessage({ msg_id: 'alien', session_id: 'other-session', seq: 1, role: 'user', content: 'ALIEN-SESSION-SENTINEL', status: 'done', created_at: 1 }); repo.close()
   const raw = [], errors = []; let initialFrozenContext
-  const server = http.createServer((req, res) => { let text = ''; req.on('data', part => text += part); req.on('end', () => {
+  const server = http.createServer(async (req, res) => {
     try {
+      const text = await requestText(req)
       const body = JSON.parse(text); raw.push(text)
       if (raw.length === 1) {
         const database = api.createRepository(path.join(data, 'deepwriter.sqlite')); database.open()
@@ -61,7 +85,7 @@ async function run(api, home, variant, { long = true, correction = false, prompt
       const delta = n < 3 ? { content: 'Inspecting the requested note before composing the answer. '.repeat(5), tool_calls: [{ index: 0, id: 'read-' + n, type: 'function', function: { name: 'read_file', arguments: JSON.stringify({ path: n === 1 ? 'first.md' : 'second.md' }) } }] } : { content: 'Observed both notes without changing files.' }
       res.writeHead(200, { 'content-type': 'text/event-stream' }); res.end('data: ' + JSON.stringify({ choices: [{ delta, finish_reason: n < 3 ? 'tool_calls' : 'stop' }], usage: { prompt_tokens: 100, completion_tokens: 40 } }) + '\n\ndata: [DONE]\n\n')
     } catch (error) { errors.push(error); res.writeHead(500); res.end('fixture failed') }
-  }) })
+  })
   await new Promise(resolve => server.listen(0, '127.0.0.1', resolve))
   let runtime
   try {

@@ -99,32 +99,6 @@ jobs:
         run: node -e "require('./scripts/windows-signing.cjs').signingConfiguration(require('./package.json').build)"
       - id: install
         run: npm ci
-      - id: check
-        shell: pwsh
-        run: |
-          $log = Join-Path $env:RUNNER_TEMP 'release-check.log'
-          npm run check 2>&1 | Tee-Object -FilePath $log
-          $code = $LASTEXITCODE
-          $lines = @(Get-Content $log)
-          $stage = @($lines | Where-Object { $_ -match '^\[check\]' } | Select-Object -Last 1)
-          $errors = @()
-          if ($code -ne 0) { $errors = @($lines | Where-Object { $_ -match '^\s*(FAIL|not ok|[✖×])|error TS\d+|Error:' } | Select-Object -Last 8 | ForEach-Object { $_.Substring(0, [Math]::Min($_.Length, 400)) }) }
-          $details = @{ stage = $stage; errors = $errors } | ConvertTo-Json -Compress
-          "details=$details" | Add-Content $env:GITHUB_OUTPUT
-          exit $code
-      - id: candidate
-        shell: pwsh
-        run: .\.github\scripts\run-release-check.ps1 -Script release:candidate:fast
-      - run: npm run r69:scene-memory-card:adversarial
-      - run: npm run r72:longwrite-livepath:adversarial
-      - run: npm run wp6:workflow-authority
-      - run: npm run r74:longform-workflow-recovery
-      - run: node scripts/release-scripts-selftest.cjs
-      - run: node --test scripts/prepare-release.test.cjs
-      - name: Windows desktop regression
-        id: desktop
-        shell: pwsh
-        run: .\.github\scripts\run-release-check.ps1 -Script e2e
       - name: Build Windows installer and portable
         id: package
         shell: pwsh
@@ -149,13 +123,6 @@ jobs:
       - name: Verify packaged ASAR
         id: asar
         run: npm run release:asar -- --dir=dist
-      - name: Test the actual packaged application
-        id: packaged
-        shell: pwsh
-        run: |
-          $env:DW_E2E_EXECUTABLE = (Resolve-Path 'dist/win-unpacked/DeepWriter.exe').Path
-          .\.github\scripts\run-release-check.ps1 -Script e2e:run
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Download the published upgrade baseline
         id: baseline
         if: always() && steps.package.outcome == 'success' && steps.asar.outcome == 'success'
@@ -182,6 +149,43 @@ jobs:
           # Older tagged installation reporters take their source identity from this variable.
           $env:GITHUB_SHA = $env:RELEASE_SOURCE
           .\.github\scripts\run-release-check.ps1 -Script release:installation
+      - id: check
+        if: github.event_name != 'workflow_dispatch' || github.ref != 'refs/heads/main'
+        shell: pwsh
+        run: |
+          $log = Join-Path $env:RUNNER_TEMP 'release-check.log'
+          npm run check 2>&1 | Tee-Object -FilePath $log
+          $code = $LASTEXITCODE
+          $lines = @(Get-Content $log)
+          $stage = @($lines | Where-Object { $_ -match '^\[check\]' } | Select-Object -Last 1)
+          $errors = @()
+          if ($code -ne 0) { $errors = @($lines | Where-Object { $_ -match '^\s*(FAIL|not ok|[✖×])|error TS\d+|Error:' } | Select-Object -Last 8 | ForEach-Object { $_.Substring(0, [Math]::Min($_.Length, 400)) }) }
+          $details = @{ stage = $stage; errors = $errors } | ConvertTo-Json -Compress
+          "details=$details" | Add-Content $env:GITHUB_OUTPUT
+          exit $code
+      - id: candidate
+        shell: pwsh
+        run: .\.github\scripts\run-release-check.ps1 -Script release:candidate:fast
+      - run: npm run r69:scene-memory-card:adversarial
+      - run: npm run r72:longwrite-livepath:adversarial
+      - run: npm run wp6:workflow-authority
+      - run: npm run r74:longform-workflow-recovery
+      - run: node scripts/release-scripts-selftest.cjs
+      - run: node --test scripts/prepare-release.test.cjs
+      - name: Windows desktop regression
+        id: desktop
+        if: github.event_name != 'workflow_dispatch' || github.ref != 'refs/heads/main'
+        shell: pwsh
+        run: .\.github\scripts\run-release-check.ps1 -Script e2e
+      - name: Test the actual packaged application
+        id: packaged
+        shell: pwsh
+        run: |
+          npm run e2e:build
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $env:DW_E2E_EXECUTABLE = (Resolve-Path 'dist/win-unpacked/DeepWriter.exe').Path
+          .\.github\scripts\run-release-check.ps1 -Script e2e:run
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Verify trusted Windows signatures and timestamps
         id: signatures
         if: env.DW_SIGNING_MODE != 'unsigned'
@@ -262,9 +266,10 @@ jobs:
       cancel-in-progress: false
     if: github.event_name == 'workflow_dispatch' || startsWith(github.ref, 'refs/tags/') || startsWith(github.ref, 'refs/heads/publish-retry/')
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 20
     permissions:
       contents: write
+      actions: read
     env:
       RELEASE_TAG: ${{ needs.build.outputs.tag }}
       RELEASE_SOURCE: ${{ needs.build.outputs.source }}
@@ -278,6 +283,23 @@ jobs:
         with:
           node-version: 22
           cache: npm
+      - name: Use the main CI results for this exact source
+        if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main'
+        shell: bash
+        run: |
+          # Main CI runs all regression gates on three platforms and the Windows
+          # source Electron suite. Do not run those same checks again to stage a draft.
+          for round in {1..30}; do
+            row=$(gh api --method GET "repos/$GH_REPO/actions/workflows/ci.yml/runs" -f event=push -f branch=main -f head_sha="$RELEASE_SOURCE" --jq '.workflow_runs[0] | [.head_sha,.status,.conclusion] | @tsv')
+            IFS=$'\t' read -r sha state result <<< "$row"
+            if [[ "$sha" == "$RELEASE_SOURCE" && "$state" == completed ]]; then
+              [[ "$result" == success ]] || { echo "CI: $result for $sha"; exit 1; }
+              echo "Source CI passed for $sha"
+              exit 0
+            fi
+            sleep 15
+          done
+          echo "No completed main CI for $RELEASE_SOURCE"; exit 1
       - name: Install locked verification dependencies without lifecycle scripts
         run: npm ci --ignore-scripts --no-audit --no-fund
       - uses: actions/download-artifact@v4

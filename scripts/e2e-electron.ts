@@ -899,6 +899,7 @@ async function main(): Promise<void> {
       sectionLabels.length === expectedSections.length && expectedSections.every(name => sectionLabels.includes(name)) &&
       (await page6.locator('.dw-settings-page:visible').count()) === 1)
     await settingsNav.getByRole('button', { name: '应用更新', exact: true }).click()
+    await page6.getByRole('heading', { name: '应用更新', exact: true }).waitFor({ state: 'visible' })
     check('应用更新从设置可达且不叠加其他页', await page6.locator('.dw-updates-page').isVisible() && (await page6.locator('.dw-settings-page:visible').count()) === 1)
     await settingsNav.getByRole('button', { name: /完成与预算/ }).click()
     check('Agent 运行限制按需展开，长文预算沿用独立语义', await page6.getByTestId('agent-run-limits').isVisible() && await page6.locator('.dw-writing-settings').getAttribute('open') === null)
