@@ -1,4 +1,4 @@
-import { collectScriptFiles, buildBranchGraph, type BranchGraph, type BranchDiagnostic } from './renpyRoutes'
+import { collectScriptFiles, buildBranchGraph, scriptLabels, type BranchGraph, type BranchDiagnostic } from './renpyRoutes'
 export { buildBranchGraph, type BranchGraph, type BranchDiagnostic, type BranchLabel, type BranchEdge } from './renpyRoutes'
 import { promises as fs } from 'fs'
 import * as path from 'path'
@@ -11,23 +11,15 @@ import type { EffectiveProfile } from '../shared/providerRegistry'
 import { injectUserPresetSystemMessage } from '../shared/userPresetPrompt'
 import { creativeApiFromEffectiveProfile, isCreativeAuthError } from './creativeModel'
 
-const EMPTY: RenpyProjectInfo = {
-  root: '',
-  scriptDir: '',
-  scriptFiles: [],
-  characters: [],
-  affinityVars: [],
-  labels: [],
-  gameName: null
-}
-
-async function readAllText(files: string[]): Promise<string> {
+async function readAllText(files: string[], onScript?: (text: string) => void): Promise<string> {
   let all = ''
   for (const f of files) {
     try {
       const st = await fs.stat(f)
       if (st.size > 5 * 1024 * 1024) continue
-      all += (await fs.readFile(f, 'utf-8')) + '\n'
+      const source = await fs.readFile(f, 'utf-8')
+      onScript?.(source)
+      all += source + '\n'
     } catch {
       void 0
     }
@@ -36,10 +28,16 @@ async function readAllText(files: string[]): Promise<string> {
 }
 
 export async function scanRenpyProject(projectDir: string): Promise<RenpyProjectInfo> {
-  const result: RenpyProjectInfo = { ...EMPTY, root: projectDir }
   const filtered = await collectScriptFiles(projectDir)
   const resolvedScriptDir = filtered.length > 0 ? path.dirname(filtered[0]) : path.join(projectDir, 'game')
-  const all = await readAllText(filtered)
+  const labels: string[] = []
+  const all = await readAllText(filtered, source => {
+    if (labels.length >= 200) return
+    for (const name of scriptLabels(source)) {
+      if (!labels.includes(name)) labels.push(name)
+      if (labels.length >= 200) break
+    }
+  })
 
   const nameMatch = /config\.name\s*=\s*["']([^"']+)/.exec(all)
   const gameName = nameMatch ? nameMatch[1] : null
@@ -56,14 +54,6 @@ export async function scanRenpyProject(projectDir: string): Promise<RenpyProject
   let am: RegExpExecArray | null
   while ((am = affRe.exec(all))) {
     if (!affinityVars.includes(am[1])) affinityVars.push(am[1])
-  }
-
-  const labels: string[] = []
-  const labelRe = /^\s*label\s+([a-zA-Z_]\w*)/gm
-  let lm: RegExpExecArray | null
-  while ((lm = labelRe.exec(all))) {
-    if (labels.length >= 200) break
-    if (!labels.includes(lm[1])) labels.push(lm[1])
   }
 
   return { root: projectDir, scriptDir: resolvedScriptDir, scriptFiles: filtered, characters, affinityVars, labels, gameName }

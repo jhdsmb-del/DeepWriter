@@ -14,7 +14,7 @@ function launch(args, cwd, extraEnv = {}) {
   let stdout = '', stderr = ''; child.stdout.on('data', chunk => { stdout += chunk }); child.stderr.on('data', chunk => { stderr += chunk })
   const done = new Promise((resolve, reject) => {
     const timer = setTimeout(() => child.kill(), 25000)
-    child.once('error', reject); child.once('close', code => { clearTimeout(timer); resolve({ code, stdout, stderr }) })
+    child.once('error', reject); child.once('close', (code, signal) => { clearTimeout(timer); resolve({ code, signal, stdout, stderr }) })
   })
   return { child, done }
 }
@@ -79,7 +79,10 @@ try{return await original.call(this,file,...args)}finally{fs.appendFileSync(proc
             const row = readDb(data, db => db.prepare('select status from runs').get()); assert.equal(row.status, 'cancelled')
             const records = readDb(data, db => db.prepare('select status from toolcalls').all()); assert.equal(records.length, 4); assert.ok(records.every(record => record.status === 'cancelled'))
           } else {
-            running.child.kill(); await running.done
+            // SIGTERM is intentionally handled: it is a graceful stop on POSIX, not a crash.
+            assert.equal(running.child.kill('SIGKILL'), true)
+            const crash = await running.done
+            if (process.platform !== 'win32') assert.equal(crash.signal, 'SIGKILL')
             const resumed = await launch([bundle, 'resume', runId, ...flags], area).done; assert.notEqual(resumed.code, 0)
             const row = readDb(data, db => db.prepare('select status,error_code from runs').get()); assert.equal(row.status, 'recovery_required'); assert.equal(row.error_code, 'parallel_read_interrupted')
             const records = readDb(data, db => db.prepare('select name,status from toolcalls').all()); assert.equal(records.filter(record => record.status === 'side_effect_unknown').length, 4); assert.equal(records.find(record => record.name === 'write_file').status, 'failed')
@@ -93,7 +96,7 @@ try{return await original.call(this,file,...args)}finally{fs.appendFileSync(proc
           assert.equal(active, 0); assert.equal(max, mode === 'normal' ? 4 : 2)
         }
         assert.deepEqual(faults, []); process.stdout.write(`# real CLI ${mode}: ${requests.length} local provider calls; ordered batch and operating-system read boundary verified\n`)
-      } finally { if (running && running.child.exitCode === null) running.child.kill(); await new Promise(resolve => server.close(resolve)) }
+      } finally { if (running && running.child.exitCode === null && running.child.signalCode === null) running.child.kill(); await new Promise(resolve => server.close(resolve)) }
     }
   } finally { assert.equal(path.dirname(directory), os.tmpdir()); assert.ok(path.basename(directory).startsWith('dw-cli-read-batches-')); await fs.rm(directory, { recursive: true, force: true }) }
 })

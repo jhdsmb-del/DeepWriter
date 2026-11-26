@@ -199,15 +199,39 @@ function argvEqual(a: string[] | null, b: string[] | null): boolean {
   return true
 }
 
-function matchRule(rules: PermissionRule[], type: PermissionTargetType, target: string): PermissionRule | undefined {
+// Resolve the existing ancestor as well as future children. Deny rules must
+// cover the same physical path when file tools canonicalize an 8.3 spelling.
+// This additional identity match never grants authority to an allow/ask rule.
+async function deniedPathIdentity(target: string): Promise<string | null> {
+  if (!path.isAbsolute(target)) return null
+  let current = path.resolve(target)
+  const suffix: string[] = []
+  for (;;) {
+    try { return path.join(await fs.realpath(current), ...suffix.reverse()) }
+    catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') return null
+      const parent = path.dirname(current)
+      if (parent === current) return null
+      suffix.push(path.basename(current)); current = parent
+    }
+  }
+}
+const pathRuleContains = (root: string, target: string): boolean => normPath(target) === normPath(root) || normPath(target).startsWith(normPath(root) + '/')
+async function matchRule(rules: PermissionRule[], type: PermissionTargetType, target: string): Promise<PermissionRule | undefined> {
   const targetArgv = type === 'command' ? parseCommandLine(target) : null
+  let physicalTarget: string | null | undefined
   for (const rule of rules) {
     if (rule.type !== type) continue
     if (type === 'command') {
       if (rule.literal === false) continue // 旧正则规则视为 legacy，不再生效（防绕过），迁移后由用户重新授权
       if (argvEqual(parseCommandLine(rule.pattern), targetArgv)) return rule
-    } else if (normPath(target) === normPath(rule.pattern) || normPath(target).startsWith(normPath(rule.pattern) + '/')) {
-      return rule
+    } else {
+      if (pathRuleContains(rule.pattern, target)) return rule
+      if (rule.action === 'deny') {
+        if (physicalTarget === undefined) physicalTarget = await deniedPathIdentity(target)
+        const physicalRule = await deniedPathIdentity(rule.pattern)
+        if (physicalTarget && physicalRule && pathRuleContains(physicalRule, physicalTarget)) return rule
+      }
     }
   }
   return undefined
@@ -376,7 +400,7 @@ export function createPermissionManager(baseDir: string, askUser?: AskUserFn, in
         return { action: 'allow', reason: '临时完全访问授权中（owner-scoped lease）' }
       }
       const mode = identity?.permissionMode === 'safe' || s.mode === 'safe' ? 'safe' : identity?.permissionMode === 'auto' ? 'auto' : identity ? 'safe' : s.mode
-      const rule = matchRule(s.rules, type, target)
+      const rule = await matchRule(s.rules, type, target)
       if (rule) {
         if (rule.action === 'ask') return askAndResolve(type, target, mode, identity)
         if (!rule.persistent) {

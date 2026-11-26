@@ -3,6 +3,7 @@ import { after, test } from 'node:test'
 import { promises as fs } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
+import { execFileSync } from 'node:child_process'
 import { createPermissionManager, type PermissionIdentity } from '../src/main/permissions'
 import { createPermissionRequestController } from '../src/main/permissionRequests'
 import { agentTools, setPermissionManager } from '../src/main/agentTools'
@@ -180,4 +181,36 @@ test('文件结果保留缺少交互授权、人工拒绝与策略禁止的真�
     assert.equal(asks, scenario === 'policy' ? 0 : 4)
     assert.equal(await fs.readFile(file, 'utf8'), original)
   }
+})
+
+
+test('Windows 短路径 deny 与真实文件身份一致，不转成人工允许或扩大 allow 规则', { skip: process.platform !== 'win32' }, async t => {
+  const canonical = await fs.realpath(workspace)
+  const short = execFileSync('cmd.exe', ['/d', '/s', '/c', `for %I in ("${canonical}") do @echo %~sI`], { encoding: 'utf8', windowsVerbatimArguments: true }).trim()
+  if (short.toLowerCase() === canonical.toLowerCase()) { t.skip('此卷未启用 8.3 短路径'); return }
+  let asks = 0
+  const pm = createPermissionManager(path.join(root, 'short-path-reason'), async () => { asks++; return { action: 'allow', remember: false } })
+  await pm.updateSettings({ mode: 'auto', rules: [{ id: 'short-deny', type: 'path', pattern: short, action: 'deny', persistent: true }] })
+  setPermissionManager(pm)
+  const file = path.join(canonical, 'short-reason.md'), original = 'original content'
+  await fs.writeFile(file, original)
+  const env = { workDir: canonical, docDir: canonical, sessionId: 'short-reason', runId: 'short-reason', permissionMode: 'auto' as const, permissionWorkspaceRoot: canonical }
+  for (const [name, args] of [
+    ['read_file', { path: file }], ['write_file', { path: file, content: 'must not overwrite' }],
+    ['edit_file', { path: file, old_text: 'original', new_text: 'changed' }], ['find_files', { path: canonical, pattern: '*.md' }],
+    ['write_file', { path: path.join(canonical, 'not-created', 'new.md'), content: 'must not create' }]
+  ] as const) {
+    const result = await agentTools.find(tool => tool.name === name)!.execute(args, canonical, env)
+    assert.equal(result.ok, false, name)
+    assert.match(result.message, /权限策略规则禁止/, name)
+  }
+  assert.equal(asks, 0, 'deny must not fall through to either auto or a permissive confirmation')
+  assert.equal(await fs.readFile(file, 'utf8'), original)
+  await assert.rejects(fs.stat(path.join(canonical, 'not-created')), { code: 'ENOENT' })
+  const sibling = canonical + '-sibling'
+  assert.equal((await pm.decide('path', path.join(sibling, 'file.md'), { ...owner, permissionMode: 'safe' })).action, 'allow')
+  assert.equal(asks, 1, 'canonical containment must not deny a prefix-sharing sibling')
+  await pm.updateSettings({ mode: 'safe', rules: [{ id: 'short-allow', type: 'path', pattern: short, action: 'allow', persistent: true }] })
+  assert.equal((await pm.decide('path', file, { ...owner, permissionMode: 'safe' })).ruleId, undefined)
+  assert.equal(asks, 2, 'physical alias matching must not expand a remembered allow rule')
 })

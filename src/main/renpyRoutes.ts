@@ -74,9 +74,27 @@ interface MenuBlock {
   options: MenuOption[]
 }
 
-const LABEL_RE = /^\s*label\s+([a-zA-Z_]\w*)/
-const JUMP_RE = /^\s*jump\s+(?!expression\b)([a-zA-Z_]\w*)/
-const CALL_RE = /^\s*call\s+(?!(?:screen|expression)\b)([a-zA-Z_]\w*)/
+// Ren'Py's lexer permits non-ASCII identifiers and one scoped label component.
+const word = '[a-zA-Z_\\u00a0-\\ufffd][0-9a-zA-Z_\\u00a0-\\ufffd]*'
+const labelName = '(' + word + '(?:\\.' + word + ')?|\\.' + word + ')'
+const LABEL_RE = new RegExp('^\\s*label\\s+' + labelName + '(?=\\s|\\(|:)')
+const JUMP_RE = new RegExp('^\\s*jump\\s+(?!expression(?:\\s|$))' + labelName + '(?=\\s|#|$)')
+const CALL_RE = new RegExp('^\\s*call\\s+(?!(?:screen|expression)(?:\\s|$))' + labelName + '(?=\\s|\\(|#|$)')
+function scopedName(name: string, current: string | null): string | null {
+  if (!name.startsWith('.')) return name
+  return current ? current.split('.')[0] + name : null
+}
+export function scriptLabels(source: string): string[] {
+  const labels: string[] = []
+  let current: string | null = null
+  for (const line of source.split(/\r?\n/)) {
+    const match = LABEL_RE.exec(line)
+    if (!match) continue
+    current = scopedName(match[1], current)
+    if (current) labels.push(current)
+  }
+  return labels
+}
 const RETURN_RE = /^\s*return\b/
 const MENU_RE = /^\s*menu\s*:\s*$/
 const OPTION_RE = /^(?:"((?:\\.|[^"\\])*)"|'((?:\\.|[^'\\])*)')(?:\s+if\s+.+?)?\s*:\s*(?:#.*)?$/
@@ -150,7 +168,8 @@ export async function buildBranchGraph(projectDir: string): Promise<BranchGraph>
 
       const lm = LABEL_RE.exec(trimmed)
       if (lm) {
-        currentLabel = lm[1]
+        currentLabel = scopedName(lm[1], currentLabel)
+        if (!currentLabel) continue
         if (!nodes.has(currentLabel)) nodes.set(currentLabel, { name: currentLabel, file, line: i + 1 })
         continue
       }
@@ -173,7 +192,8 @@ export async function buildBranchGraph(projectDir: string): Promise<BranchGraph>
       const jm = JUMP_RE.exec(trimmed)
       const cm = CALL_RE.exec(trimmed)
       if (jm || cm) {
-        const target = (jm ?? cm)![1]
+        const target = scopedName((jm ?? cm)![1], currentLabel)
+        if (!target) continue
         const type: BranchEdge['type'] = cm ? 'call' : curOption ? 'menu' : 'jump'
         if (curOption) curOption.hasBranch = true
         if (currentLabel) {
