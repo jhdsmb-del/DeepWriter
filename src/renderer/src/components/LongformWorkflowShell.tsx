@@ -10,6 +10,7 @@ import NovelPanel from './NovelPanel'
 import GrillMeWorkbench from './GrillMeWorkbench'
 import ActivityCard from './activity/ActivityCard'
 import Icon from './Icon'
+import { LongformManuscriptEntry } from './ManuscriptReader'
 
 type WorkflowStage = 'clarify' | 'recall' | 'outline' | 'write' | 'review'
 
@@ -176,6 +177,7 @@ function statusLabel(grill: GrillMeState | null, run: RunViewState | null, revie
 }
 
 function WorkflowHeader({ stage, grill, run, review, snapshot, syncState }: { stage: WorkflowStage | null; grill: GrillMeState | null; run: RunViewState | null; review: NarrativeReviewPrompt | null; snapshot: LongformWorkflowSnapshot | null; syncState: WorkflowSyncState }): React.ReactNode {
+  const sessionId = useStore(state => state.currentSessionId)
   const title = grill?.outline?.title?.trim() || grill?.originalTask.slice(0, 36).trim() || '长文写作'
   return (
     <header className="dw-longform-header">
@@ -183,6 +185,7 @@ function WorkflowHeader({ stage, grill, run, review, snapshot, syncState }: { st
         <h1>{title}</h1>
         <p>{statusLabel(grill, run, review, snapshot)}</p>
       </div>
+      <LongformManuscriptEntry sessionId={sessionId} />
       {!snapshot && <span className={`dw-longform-sync-state ${syncState}`} role="status">{syncState === 'unavailable' ? '同步不可用' : '等待同步'}</span>}
     </header>
   )

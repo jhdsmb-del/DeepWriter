@@ -77,7 +77,7 @@ async function withOfficialEnvironment(task, extra = {}) {
   }
 }
 async function installationFixture(root, mutation = {}) {
-  const report = { version, sourceCommit, upgradedFrom: '1.2.6', installerSha256: await hashFile(path.join(root, 'dist', `DeepWriter-${version}-x64-setup.exe`)), baselineSha256: 'c'.repeat(64), cleanInstall: true, upgradeHistory: true, upgradeCredentials: true, uninstallPreservesData: true, ...mutation }
+  const report = { version, sourceCommit, upgradedFrom: require('./upgrade-baseline.cjs').upgradeBaseline(version), installerSha256: await hashFile(path.join(root, 'dist', `DeepWriter-${version}-x64-setup.exe`)), baselineSha256: 'c'.repeat(64), cleanInstall: true, upgradeHistory: true, upgradeCredentials: true, uninstallPreservesData: true, ...mutation }
   fs.writeFileSync(path.join(root, 'dist', 'installation-verification.json'), JSON.stringify(report))
   return report
 }
@@ -148,7 +148,7 @@ test('official download verification rejects rehashed but stale installation pro
 
 test('unsigned preflight includes real installation evidence without claiming a signed release', async () => fixture(async (root) => {
   const file = path.join(root, 'dist', 'installation-verification.json')
-  const report = { version, sourceCommit, upgradedFrom: '1.2.6', installerSha256: await hashFile(path.join(root, 'dist', `DeepWriter-${version}-x64-setup.exe`)), baselineSha256: 'c'.repeat(64), cleanInstall: true, upgradeHistory: true, upgradeCredentials: true, uninstallPreservesData: true }
+  const report = { version, sourceCommit, upgradedFrom: require('./upgrade-baseline.cjs').upgradeBaseline(version), installerSha256: await hashFile(path.join(root, 'dist', `DeepWriter-${version}-x64-setup.exe`)), baselineSha256: 'c'.repeat(64), cleanInstall: true, upgradeHistory: true, upgradeCredentials: true, uninstallPreservesData: true }
   fs.writeFileSync(file, JSON.stringify({ ...report, sourceCommit: 'b'.repeat(40) }))
   await assert.rejects(prepareRelease(root, sourceCommit), /incomplete or stale/)
   fs.writeFileSync(file, JSON.stringify(report))
@@ -198,7 +198,7 @@ test('signed staging requires actual installation evidence and includes its chec
   await signatureFixture(root)
   const options = { requireSigning: true, publisher: 'Fixture Publisher' }
   await assert.rejects(prepare(root, sourceCommit, options), /ENOENT/)
-  const report = { version, sourceCommit, upgradedFrom: '1.2.6', installerSha256: await hashFile(path.join(root, 'dist', `DeepWriter-${version}-x64-setup.exe`)), baselineSha256: 'c'.repeat(64), cleanInstall: true, upgradeHistory: true, upgradeCredentials: true, uninstallPreservesData: false }
+  const report = { version, sourceCommit, upgradedFrom: require('./upgrade-baseline.cjs').upgradeBaseline(version), installerSha256: await hashFile(path.join(root, 'dist', `DeepWriter-${version}-x64-setup.exe`)), baselineSha256: 'c'.repeat(64), cleanInstall: true, upgradeHistory: true, upgradeCredentials: true, uninstallPreservesData: false }
   const file = path.join(root, 'dist', 'installation-verification.json')
   fs.writeFileSync(file, JSON.stringify(report))
   await assert.rejects(prepare(root, sourceCommit, options), /incomplete/)

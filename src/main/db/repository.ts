@@ -119,6 +119,9 @@ export interface ManuscriptSegmentRow {
   accepted_at: number | null
 }
 
+export type ManuscriptReaderSegment = Pick<ManuscriptSegmentRow, 'segment_id' | 'section_id' | 'scene_id' | 'status' | 'char_count'>
+export interface ManuscriptReaderSlice { segmentId: string; start: number; length: number }
+
 /**
  * Metadata returned by the R61 accepted-prefix cursor.  The content itself is
  * read only for the bounded recent tail; the full accepted manuscript is
@@ -1201,6 +1204,8 @@ export interface Repository {
   deleteTurnsByRun(runId: string): void
   saveManuscriptSegment(segment: ManuscriptSegmentRow): void
   getManuscriptSegmentsByRun(runId: string): ManuscriptSegmentRow[]
+  getManuscriptReaderSegments(runId: string): ManuscriptReaderSegment[]
+  getManuscriptReaderSlices(runId: string, slices: ManuscriptReaderSlice[]): Array<{ content: string }>
   /**
    * R61/P2-4: get the exact accepted-prefix provenance chain plus a bounded
    * recent tail. Production context assembly uses this instead of loading all
@@ -3304,6 +3309,20 @@ export function createRepository(dbPath: string, testHooks: RepositoryTestHooks 
       const d = requireDb()
       validatePartialGraphForRun(d, runId)
       return d.prepare('SELECT * FROM manuscript_segments WHERE run_id = ? ORDER BY chunk_index ASC, revision ASC, created_at ASC').all(runId) as unknown as ManuscriptSegmentRow[]
+    },
+    getManuscriptReaderSegments(runId) {
+      return requireDb().prepare(`SELECT segment_id, section_id, scene_id, status, char_count FROM manuscript_segments
+        WHERE run_id = ? AND kind = 'prose' AND status IN ('accepted', 'partial', 'candidate')
+        ORDER BY chunk_index ASC, revision ASC, created_at ASC, segment_id ASC`).all(runId) as unknown as ManuscriptReaderSegment[]
+    },
+    getManuscriptReaderSlices(runId, slices) {
+      if (slices.length === 0) return []
+      return requireDb().prepare(`SELECT substr(segment.content, json_extract(slice.value, '$.start') + 1,
+          json_extract(slice.value, '$.length')) AS content
+        FROM json_each(?) AS slice JOIN manuscript_segments AS segment
+          ON segment.segment_id = json_extract(slice.value, '$.segmentId')
+        WHERE segment.run_id = ? AND segment.kind = 'prose' AND segment.status = 'accepted'
+        ORDER BY CAST(slice.key AS INTEGER)`).all(JSON.stringify(slices), runId) as Array<{ content: string }>
     },
     getAcceptedNarrativePrefixSnapshot(input) {
       if (!input || !input.runId || !Number.isFinite(input.recentChars) || input.recentChars < 1 || !input.currentSceneId || !/^[0-9a-f]{64}$/u.test(input.currentContractHash) || !Array.isArray(input.ledger)) {

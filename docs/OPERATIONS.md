@@ -9,7 +9,7 @@
 可直接下载公开发行包。将版本号换成 [Releases](https://github.com/jhdsmb-del/DeepWriter/releases) 上提供完整包的版本：
 
 ```powershell
-$version = Read-Host "版本号（例如 6.0.0）"
+$version = Read-Host "版本号（例如 8.0.0）"
 gh release download "v$version" --repo jhdsmb-del/DeepWriter --pattern "DeepWriter-$version-complete.zip*" --dir ".\downloads\$version"
 ```
 
@@ -109,3 +109,7 @@ node scripts/distribution-inventory.cjs --asar dist/win-unpacked/resources/app.a
 ## 重试尚未上传附件的发行
 
 如果标签已经推送，但 Windows 发布作业因运行环境失败，保留原标签。维护者修好工作流后，可推送 `publish-retry/vX.Y.Z` 分支触发同一套发布步骤。该分支只提供工作流；应用、测试、指南和制品均从已有的 `vX.Y.Z` 标签构建，上传前再核对标签与制品来源一致。已正式发布的版本不会被覆盖。只做候选验证仍用 `release/vX.Y.Z`，不会上传附件。
+
+## 发布 Windows 自动更新
+
+在同一份源码上手动运行 GitHub Actions 的 **Windows Release** 和 **Windows NSIS update rehearsal**。前者将安装包、`latest.yml`、差分索引和 CLI 压缩包上传到草稿；后者在独立 Windows 机器上安装两个测试版本，检查正常退出不安装、主动重启会升级并保留数据。两者通过后，将同一提交的发布草稿设为最新正式版。客户端读取 GitHub 的正式发布，不读取草稿。

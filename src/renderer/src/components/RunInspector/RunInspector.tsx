@@ -11,6 +11,7 @@ import ToolOutputView from './ToolOutputView'
 import Icon from '../Icon'
 import { useDialogFocus } from '../../hooks/useDialogFocus'
 import ConfirmDialog from '../ConfirmDialog'
+import ManuscriptReader, { useManuscriptIndex } from '../ManuscriptReader'
 
 const PHASE_LABEL: Record<RunPhase, string> = {
   queued: '排队中',
@@ -657,6 +658,7 @@ function ManuscriptDraftControl({ runId }: { runId: string }): React.ReactNode {
   const status = useStore(state => state.runs[runId]?.status)
   const recoverableStatus = useStore(state => state.recoverableRuns.find(run => run.runId === runId)?.status)
   const showToast = useStore(state => state.showToast)
+  const open = useStore(state => state.openRunInspector)
   const [info, setInfo] = useState<ManuscriptDraftInfo | null>(null)
   const [saving, setSaving] = useState(false)
   useEffect(() => {
@@ -670,6 +672,7 @@ function ManuscriptDraftControl({ runId }: { runId: string }): React.ReactNode {
   if (!info) return null
   return <section className="ri-manuscript-draft" data-testid="manuscript-draft-control">
     <h4>已收稿 {info.acceptedChars.toLocaleString()} 字</h4>
+    <button type="button" className="dw-text-btn" onClick={() => open(runId, 'manuscript')}>阅读已收稿</button>
     <button type="button" className="btn primary" disabled={saving} onClick={() => {
       setSaving(true)
       void (window as any).ds.runsSaveDraft(runId).then((result: import('../../../../shared/manuscriptDraft').ManuscriptDraftSaveResult) => {
@@ -726,6 +729,18 @@ function RunInspectorInner(): React.ReactNode {
   const closeRunInspector = useStore((s) => s.closeRunInspector)
   const deleteRun = useStore((s) => s.deleteRun)
   const [confirmDelete, setConfirmDelete] = useState(false)
+  const manuscript = useManuscriptIndex(runId)
+  const returnToWriting = (): void => {
+    const sessionId = manuscript.view?.sessionId
+    const state = useStore.getState()
+    if (sessionId && state.currentSessionId !== sessionId && (state.running || state.submitting)) {
+      state.showToast('另一个会话正在写作，请结束后再切换。', 'info')
+      return
+    }
+    closeRunInspector()
+    if (sessionId && state.currentSessionId !== sessionId) void state.switchSession(sessionId).then(() => useStore.getState().setMode('longwrite'))
+    else state.setMode('longwrite')
+  }
   const dialogRef = useDialogFocus<HTMLDivElement>(Boolean(runId), closeRunInspector)
   useEffect(() => {
     if (runId) void resyncRun(runId)
@@ -733,7 +748,7 @@ function RunInspectorInner(): React.ReactNode {
   if (!runId) return null
   return (
     <div className="modal-overlay dw-dialog-overlay">
-      <div ref={dialogRef} tabIndex={-1} className="run-inspector dw-dialog" role="dialog" aria-modal="true" aria-labelledby="dw-run-inspector-title">
+      <div ref={dialogRef} tabIndex={-1} className={`run-inspector dw-dialog${tab === 'manuscript' ? ' dw-manuscript-open' : ''}`} role="dialog" aria-modal="true" aria-labelledby="dw-run-inspector-title">
         <div className="run-inspector-head">
           <div className="run-inspector-title-block">
             <div className="run-inspector-title" id="dw-run-inspector-title">任务详情</div>
@@ -748,9 +763,10 @@ function RunInspectorInner(): React.ReactNode {
         </div>
         <div className="ri-tabs" role="tablist" aria-label="任务详情视图">
           <button role="tab" aria-selected={tab === 'activity'} onClick={() => setTab(runId, 'activity')}><Icon name="tasks" />活动</button>
+          {(manuscript.view || tab === 'manuscript') && <button role="tab" aria-selected={tab === 'manuscript'} onClick={() => setTab(runId, 'manuscript')}><Icon name="document" />稿件</button>}
           <button role="tab" aria-selected={tab === 'billing'} onClick={() => setTab(runId, 'billing')}><Icon name="receipt" />账单</button>
         </div>
-        {tab === 'billing'
+        {tab === 'manuscript' ? manuscript.view ? <ManuscriptReader key={runId} index={manuscript.view} onReturn={returnToWriting} /> : <div className="dw-manuscript-empty" role="status">{manuscript.loading ? '正在读取目录…' : manuscript.error ?? '这个任务还没有长文稿件。'}</div> : tab === 'billing'
           ? <BillingPanel key={runId} runId={runId} />
           : <><ManuscriptDraftControl runId={runId} /><ProviderCallLimitRecovery runId={runId} />{run ? <RunBody run={run} /> : <div className="run-inspector-body"><WorkPlanProgress runId={runId} detail /><div className="run-inspector-empty">未找到该任务的活动记录。</div></div>}</>}
         {confirmDelete ? <ConfirmDialog

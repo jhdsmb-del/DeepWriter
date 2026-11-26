@@ -2,7 +2,7 @@
 
 Windows 和命令行上的文本写作助手。用自己的模型翻阅本地资料、修改稿件，或从大纲开始逐章写作。
 
-**[下载免安装版](https://github.com/jhdsmb-del/DeepWriter/releases/download/v6.0.0/DeepWriter-6.0.0-x64-portable.exe)** · [安装版](https://github.com/jhdsmb-del/DeepWriter/releases/download/v6.0.0/DeepWriter-6.0.0-x64-setup.exe) · [完整包（桌面＋CLI）](https://github.com/jhdsmb-del/DeepWriter/releases/download/v6.0.0/DeepWriter-6.0.0-complete.zip)
+**[下载 Windows 安装版](https://github.com/jhdsmb-del/DeepWriter/releases/download/v8.0.0/DeepWriter-8.0.0-x64-setup.exe)** · [免安装版](https://github.com/jhdsmb-del/DeepWriter/releases/download/v8.0.0/DeepWriter-8.0.0-x64-portable.exe) · [完整包（桌面＋CLI）](https://github.com/jhdsmb-del/DeepWriter/releases/download/v8.0.0/DeepWriter-8.0.0-complete.zip)
 
 <details>
 <summary>用命令行下载</summary>
@@ -10,13 +10,13 @@ Windows 和命令行上的文本写作助手。用自己的模型翻阅本地资
 装有 GitHub CLI 的 Windows 用户可以在 PowerShell 里下载并解压完整包：
 
 ```powershell
-gh release download v6.0.0 -R jhdsmb-del/DeepWriter -p '*-complete.zip'
-Expand-Archive .\DeepWriter-6.0.0-complete.zip -DestinationPath .\DeepWriter
+gh release download v8.0.0 -R jhdsmb-del/DeepWriter -p '*-complete.zip'
+Expand-Archive .\DeepWriter-8.0.0-complete.zip -DestinationPath .\DeepWriter
 ```
 
 </details>
 
-第一次打开，去 **设置 → 模型与接口** 选服务商、填 API Key。回到 **Agent → 更多工具**，选中稿件所在的目录，就可以直接提文件名了。[桌面入门](docs/QUICKSTART.md) · [CLI 配置](docs/CLI.md)
+安装版会在后台下载后续版本，等你点「重启并安装」才会安装。第一次打开，去 **设置 → 模型与接口** 选服务商、填 API Key。回到 **Agent → 更多工具**，选中稿件所在的目录，就可以直接提文件名了。[桌面入门](docs/QUICKSTART.md) · [CLI 配置](docs/CLI.md)
 
 ## 改一句对白
 
@@ -33,6 +33,10 @@ Expand-Archive .\DeepWriter-6.0.0-complete.zip -DestinationPath .\DeepWriter
 把访谈 Word、旧稿或一包 ZIP 资料拖进对话，先问一个能查回原文的问题，比如「两份交接记录里的日期哪里不一样？把原句列给我」。展开回复里的 **文件来源**，能看到所用的文件和摘录；文本文件还会标出行号。
 
 要写正文，切到 **长文**，给出读者和目标字数。DeepWriter 会逐个提问，再把大纲交给你改。点 **确认大纲，开始写作** 后会接着写各章；中途想拿走已完成的部分，在 **任务中心 → 任务详情 → 活动** 选 **另存草稿**。
+
+长稿不用先导出。在 **阅读已收稿** 里搜章名、按页读，退出阅读就能回到原来的写作会话。
+
+![在目录搜索“旧账”，直接打开《渡口的旧账》一章](docs/images/manuscript-reader-v8.png)
 
 ## 试玩《末班渡船》
 
@@ -60,7 +64,9 @@ Expand-Archive .\DeepWriter-6.0.0-complete.zip -DestinationPath .\DeepWriter
 
 ## 在终端里用
 
-完整包自带 CLI 和 Node 运行时。在解压目录打开 PowerShell，这条命令不需要 API Key，就能列出示例的选项、跳转目标和剧本行号：
+[只下载 CLI](https://github.com/jhdsmb-del/DeepWriter/releases/download/v8.0.0/DeepWriter-8.0.0-cli-win-x64.zip) 或选择带示例故事的完整包。两者都自带 Node 运行时。
+
+在完整包的解压目录运行这条命令，不用 API Key 就能读到剧本的选项、跳转目标和行号：
 
 ```powershell
 .\cli\deepwriter.cmd galgame routes .\examples\last-ferry
@@ -88,4 +94,4 @@ npm run dev
 
 </details>
 
-[6.0.0 更新说明](docs/RELEASE_NOTES_6.0.0.md) · [架构](docs/TECHNICAL_OVERVIEW.md) · [贡献指南](CONTRIBUTING.md) · [反馈问题](https://github.com/jhdsmb-del/DeepWriter/issues) · [MIT 许可证](LICENSE)
+[8.0.0 更新说明](docs/RELEASE_NOTES_8.0.0.md) · [架构](docs/TECHNICAL_OVERVIEW.md) · [贡献指南](CONTRIBUTING.md) · [反馈问题](https://github.com/jhdsmb-del/DeepWriter/issues) · [MIT 许可证](LICENSE)

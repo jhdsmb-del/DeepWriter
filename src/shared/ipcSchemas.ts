@@ -7,6 +7,7 @@ import { z } from 'zod'
 import { COMPOSER_DRAFT_MAX_CHARS } from './composerDraft'
 import { COMPATIBILITY_MAPPINGS } from './providerRegistry'
 export const permissionAnswerSchema = z.object({ id: z.string().uuid(), answer: z.enum(['allow_once', 'allow_run', 'deny']) }).strict()
+export const desktopUpdatePreferenceSchema = z.object({ autoCheck: z.boolean() }).strict()
 
 const httpUrl = z.string().min(1).max(2048).refine((v) => {
   try {
@@ -465,6 +466,13 @@ export const workSteeringGetSchema = z.object({ runId: safeId, sessionId: safeId
 export const workSteeringSchema = workSteeringGetSchema.extend({ requestId: safeId, text: z.string().min(1).max(8000) }).strict()
 /** Native save dialog owns the destination; renderer supplies only run identity. */
 export const runsSaveDraftSchema = runsGetSchema.strict()
+/** Read-only, bounded manuscript pages; exactly one durable identity. */
+export const runsReadManuscriptSchema = z.object({
+  runId: z.string().min(1).max(128).optional(),
+  sessionId: z.string().min(1).max(128).optional(),
+  chapterId: z.string().min(1).max(1024).optional(),
+  page: z.number().int().min(0).max(2000000).optional()
+}).strict().refine(input => Boolean(input.runId) !== Boolean(input.sessionId), '请指定任务或会话')
 /** Prepare a child story branch from the current authoritative head. */
 export const runsStoryRebaseSchema = runsGetSchema.extend({ branchId: safeId.optional() }).strict()
 /** 用户明确授权后扩展 waiting_user 长文预算；不读取当前设置静默改写旧快照。 */

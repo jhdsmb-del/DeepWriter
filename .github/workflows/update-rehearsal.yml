@@ -1,0 +1,51 @@
+name: Windows NSIS update rehearsal
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: nsis-update-rehearsal-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  rehearse:
+    # Never move this job to a self-hosted runner: it installs two test copies.
+    runs-on: windows-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Exercise the real installed updater, normal quit, and explicit restart
+        run: node scripts/update-rehearsal.cjs
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+      - name: Preserve evidence even on failure
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-update-rehearsal-${{ github.run_id }}
+          path: out/update-rehearsal
+          if-no-files-found: warn
+          retention-days: 14
+      - name: Summarize the observed outcome
+        if: always()
+        shell: pwsh
+        run: |
+          $report = 'out/update-rehearsal/result.json'
+          if (Test-Path -LiteralPath $report) {
+            $result = Get-Content -LiteralPath $report -Raw | ConvertFrom-Json
+            "## Windows NSIS update rehearsal: $($result.outcome)" >> $env:GITHUB_STEP_SUMMARY
+            "Synthetic versions: $($result.baseVersion) -> $($result.targetVersion); source: $($result.sourceCommit)" >> $env:GITHUB_STEP_SUMMARY
+            "" >> $env:GITHUB_STEP_SUMMARY
+            foreach ($check in $result.checks) { "- PASS: $check" >> $env:GITHUB_STEP_SUMMARY }
+            if ($result.error) { "- Failure: $($result.error)" >> $env:GITHUB_STEP_SUMMARY }
+            "" >> $env:GITHUB_STEP_SUMMARY
+            "Download the windows-update-rehearsal artifact for screenshots, actual restarted identity, upstream updater events, HTTP requests, NSIS button actions, and shutdown traces. Test installers are never published." >> $env:GITHUB_STEP_SUMMARY
+          }

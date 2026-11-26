@@ -261,7 +261,7 @@ interface StudioStore {
   completionProgress: Record<string, CompletionProgress>
   activeRunId: string | null
   inspectorRunId: string | null
-  inspectorTab: 'activity' | 'billing'
+  inspectorTab: 'activity' | 'billing' | 'manuscript'
   runListRevision: number
   permissions: PermissionSettings | null
   memory: MemoryInfo | null
@@ -372,7 +372,7 @@ interface StudioStore {
   runStop: (runId: string) => Promise<boolean>
   deleteRun: (runId: string, storyAction?: 'preserve' | 'retract') => Promise<boolean>
   resyncRun: (runId: string) => Promise<void>
-  openRunInspector: (runId: string, tab?: 'activity' | 'billing') => void
+  openRunInspector: (runId: string, tab?: 'activity' | 'billing' | 'manuscript') => void
   closeRunInspector: () => void
   loadContext: (sessionId?: string) => Promise<void>
   previewContext: (draftText: string, attachments?: AttachmentRef[], planText?: string, phase?: ChatPhase, sourceTask?: string, grillMe?: GrillMeState, storyScope?: NarrativeLedgerScopeInput) => Promise<ContextPreviewV1 | null>

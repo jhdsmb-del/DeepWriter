@@ -15,7 +15,7 @@ DeepWriter CLI 支持联网问答、工作目录内的文件/命令任务，以�
 
 ## 三步开始
 
-Windows 完整包包含同版桌面、`cli/deepwriter.cmd` 和 `cli/runtime/node.exe`，无需另装 Node 或 npm。完整解压后在解压目录打开 PowerShell，并保留整个 `cli` 目录。已发布的包见 [Releases](https://github.com/jhdsmb-del/DeepWriter/releases)。
+Windows 独立 CLI 包 `DeepWriter-8.0.0-cli-win-x64.zip` 包含 `cli/deepwriter.cmd`、`cli/runtime/node.exe` 和依赖许可证，无需安装桌面版、Node 或 npm。完整包也包含相同的 CLI 目录和同版桌面。完整解压后在解压目录打开 PowerShell，并保留整个 `cli` 目录。已发布的包见 [Releases](https://github.com/jhdsmb-del/DeepWriter/releases)。上面的 `examples/last-ferry` 示例随完整包和源码提供，不在独立 CLI 包内。
 
 1. 核对版本和实际命令：
 
@@ -41,7 +41,26 @@ Windows 完整包包含同版桌面、`cli/deepwriter.cmd` 和 `cli/runtime/node
 
 `--target 8000` 设置目标字数。Key 不进入命令历史或普通配置，但存在当前终端进程的环境中；用完可运行 `Remove-Item Env:DEEPWRITER_API_KEY`。
 
-后续命令中的 `deepwriter` 是入口简称，在完整包中替换为 `.\cli\deepwriter.cmd`，源码环境替换为 `node out/cli/deepwriter.cjs`，并非要求另装全局命令。默认数据目录是当前目录下 `.deepwriter-cli`，含独立数据库、非密钥配置、检查点及产物缓存；默认稿件目录为其中的 `documents`。可用 `--data-dir`、`--work-dir`、`--doc-dir` 明确指定，不会自动导入桌面会话。固定数据目录后，查询与恢复也要使用同一 `--data-dir`。
+后续命令中的 `deepwriter` 是入口简称，在独立 CLI 或完整包中替换为 `.\cli\deepwriter.cmd`，源码环境替换为 `node out/cli/deepwriter.cjs`，并非要求另装全局命令。默认数据目录是当前目录下 `.deepwriter-cli`，含独立数据库、非密钥配置、检查点及产物缓存；默认稿件目录为其中的 `documents`。可用 `--data-dir`、`--work-dir`、`--doc-dir` 明确指定，不会自动导入桌面会话。固定数据目录后，查询与恢复也要使用同一 `--data-dir`。
+
+## 检查与下载 CLI 更新
+
+CLI 不后台检查或自动替换自身。以下两个命令只有在明确运行时才连接官方 GitHub 发布服务；不需要 Provider 配置或 API Key，不创建运行数据库，也不读取桌面密钥：
+
+```powershell
+.\cli\deepwriter.cmd update check
+.\cli\deepwriter.cmd update check --json
+New-Item -ItemType Directory -Path .\cli-downloads
+.\cli\deepwriter.cmd update download .\cli-downloads
+```
+
+`check` 返回当前版本、官方稳定版、发布页和独立 CLI 资产。`download` 只接受已存在的真实目录，只下载该正式版本的 `DeepWriter-版本-cli-win-x64.zip`；先流式写入私有临时文件，核对官方发布 API 提供的字节数与 SHA-256 后，才发布为完整文件。它不覆盖同名文件或链接，不更新已安装 CLI，不解压、安装或运行下载的代码。下载失败会清理本次临时文件；目录需支持硬链接安全发布，Windows 可选择本机 NTFS 目录。没有独立 CLI 资产或 API 未提供 SHA-256 时，按输出中的官方发布页提示处理，不会改下桌面安装包。
+
+解压到一个新目录，先运行新目录中的 `cli/deepwriter.cmd --version`，保留旧 CLI，确认新入口可用后再手动切换。更新不会迁移数据：继续使用原工作目录，或显式指定原来的 `--data-dir`，否则新目录下会显示一个新的空会话库。已是当前版本时，`check` 仍给出操作提示；明确运行 `download` 仍可下载同版本的全新副本。
+
+加 `--json` 时输出单行 `{"type":"update","data":{...}}`，包含 `currentVersion`、`version`、`updateAvailable`、`cliAsset` 和人工操作 `instruction`；下载另含 `status`（`downloaded` / `unavailable`）、`path`，成功时附 `bytes`、`sha256`。查询成功或未发布 CLI 资产退出 `0`；网络、校验、参数或文件冲突退出 `1`，沿用 `type: "error"` 信封。此入口只接受 `--json`，不接受自定义发布地址或 Provider 选项。
+
+随包 Node 运行时支持标准 `HTTPS_PROXY`、`HTTP_PROXY`、`NO_PROXY` 环境变量；没有 DeepWriter 专属代理或发布地址覆盖项。源码环境的较旧 Node 可用其支持的 `NODE_USE_ENV_PROXY=1` / `--use-env-proxy` 启动，或升级到随包版本；代理认证信息不会作为命令输出。
 
 ## 配置、自定义服务与思考强度
 
@@ -65,7 +84,7 @@ $env:DW_PROVIDER_KEY = [System.Net.NetworkCredential]::new("", $dwProviderKey).P
 .\cli\deepwriter.cmd config set --protocol openai-chat --base-url $dwBaseUrl --model $dwModel --key-env DW_PROVIDER_KEY --no-loopback
 ```
 
-后续命令沿用该变量名，但每个新终端仍需设置它的值；用完可运行 `Remove-Item Env:DW_PROVIDER_KEY`。遇到 401/403，先用 `config show` 核对实际 origin、路径、模型和认证头，再核对该服务自己的 Key；不要把官方 Key 试发给其他服务。桌面提供配置预设、模型发现与能力探测，CLI 不会自动读取这些配置；详见 [Provider 说明](PROVIDER_EXPANSION_RESEARCH.md)。
+后续命令沿用该变量名，但每个新终端仍需设置它的值；用完可运行 `Remove-Item Env:DW_PROVIDER_KEY`。遇到 401/403，先用 `config show` 核对实际 origin、路径、模型和认证头，再核对该服务自己的 Key；不要把官方 Key 试发给其他服务。桌面提供配置预设、模型发现与能力探测，CLI 不会自动读取这些配置；详见 [Provider 说明](https://github.com/jhdsmb-del/DeepWriter/blob/main/docs/PROVIDER_EXPANSION_RESEARCH.md)。
 
 `--auth-header api-key` 或配置 `authHeaderName` 可指定专用认证头名（例如 Azure 的 OpenAI-compatible 路径）；值仍由原独立密钥来源读取，不写快照。Authorization 使用 Bearer，其他允许的认证头发送原始 key；默认 Anthropic 是 x-api-key，其他协议默认 Authorization。复用共享认证策略拒绝危险头名、CRLF、用户 extraHeaders/fixedHeaders 和秘密额外头；Anthropic 版本头仅由受控协议设置。`deepseek-chat` 的旧原生路径只支持 Authorization，专用头须明确选 `openai-chat/responses`；不声称 native Gemini/OAuth。改变认证头后旧 run 恢复拒绝，不静默发送到新头。
 

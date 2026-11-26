@@ -37,6 +37,11 @@ async function main(): Promise<void> {
   if (options.help || (!args.length && !isTerminal) || args[0] === 'help') { process.stdout.write(HELP); return }
   const interactiveAgent = args[0] === 'agent' && args.length === 1 && !options.input && isTerminal
   const command = interactiveAgent ? 'interactive' : args[0] ?? 'interactive'
+  if (command === 'update') {
+    const { runCliUpdate } = await import('./update')
+    await runCliUpdate(args, options, __DEEPWRITER_VERSION__)
+    return
+  }
   if (interactiveAgent) { options.tools = true; options['agent-session'] = true }
   const commands = ['interactive', 'brief', 'config', 'chat', 'agent', 'plan', 'plan-info', 'approve', 'reject-plan', 'write', 'interview', 'answer', 'assumptions', 'outline', 'confirm', 'start', 'resume', 'pause', 'cancel', 'list', 'status', 'usage', 'sources', 'changes', 'undo-edit', 'recover-info', 'recover', 'review', 'skills', 'plugins', 'export']
   commands.push('steer', 'steering', 'galgame')

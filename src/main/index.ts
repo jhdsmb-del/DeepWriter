@@ -3,7 +3,7 @@ import type { ChatFileAnchor, ChatFileAction, ChatFileActionResult } from '../sh
 import { unlimitedAgentRunBudget, normalizeAgentRunBudget, agentRunBudgetFromStoredSettings, completionTokenBudgetFromStoredSettings } from '../shared/agentRunBudget'
 import { storedOutputTokenLimit } from '../shared/outputTokenPolicy'
 import { attachmentZipHandle, readAttachedZipResult } from './attachedZip'
-import { app, BrowserWindow, ipcMain, dialog, shell, safeStorage, Menu, clipboard, screen } from 'electron'
+import { app, BrowserWindow, ipcMain, dialog, shell, safeStorage, Menu, clipboard, screen, net } from 'electron'
 import * as path from 'path'
 import { pathToFileURL } from 'url'
 import { promises as fs, readFileSync, writeFileSync } from 'fs'
@@ -12,6 +12,7 @@ import { createHash } from 'node:crypto'
 import { streamChat } from './deepseek'
 import { deliverManuscript } from './manuscriptDelivery'
 import { manuscriptDraftInfo, saveManuscriptDraft } from './manuscriptDraftExport'
+import { readManuscriptReader } from './manuscriptReader'
 import { getRunWorkPlan } from './workPlan'
 import { queueWorkSteering, workSteeringView } from './workSteering'
 import { freezeRunWebAccess } from './runWebAccess'
@@ -54,6 +55,9 @@ import type { NovelWorkflow } from './novel/novelWorkflow'
 import { createExemplarStore } from './style/styleJobStore'
 import { createRepository } from './db/repository'
 import { createDraftFlushBarrier } from './draftFlush'
+import { DesktopUpdates, desktopInstallKind } from './desktopUpdates'
+import { NsisUpdater } from 'electron-updater'
+import { getStableRelease } from '../shared/publicRelease'
 import type { Repository, StoryLedgerDeleteAction } from './db/repository'
 import { createAgentRunEngine, provisionalNarrativeReviewOperationId } from './jobs/AgentRunEngine'
 import type { AgentRunEngine } from './jobs/AgentRunEngine'
@@ -92,7 +96,7 @@ import { canonicalizeGrillMePayload, createGrillMeState, answerGrillMe, acceptAs
 import { injectUserPresetSystemMessage, normalizeUserPresetPrompt } from '../shared/userPresetPrompt'
 import type { SessionStore } from './sessionStore'
 import type { PermissionManager, AskUserFn } from './permissions'
-import { registerIpc, registerIpcOn, IpcError } from './ipcGuard'
+import { registerIpc, registerIpcOn, IpcError, pendingDesktopOperations, reserveUpdateRestart } from './ipcGuard'
 import * as schemas from '../shared/ipcSchemas'
 import { ProjectBriefError, readProjectBrief, saveProjectBrief } from './projectBrief'
 import { ProviderRegistryService, ProviderRegistryError } from './providerRegistry'
@@ -133,6 +137,7 @@ app.on('render-process-gone', (_event, webContents, details) => {
 })
 
 const DEFAULT_SETTINGS: Settings = {
+  autoCheckUpdates: true,
   outputTokenLimit: null,
   agentRunBudget: unlimitedAgentRunBudget(),
   apiKey: '',
@@ -391,6 +396,7 @@ async function parseSettingsFile(raw: string, readSecrets = true, sideEffects = 
   const s: Settings = {
     ...DEFAULT_SETTINGS,
     ...parsed,
+    autoCheckUpdates: parsedRaw.autoCheckUpdates !== false,
     outputTokenLimit: storedOutputTokenLimit(parsedRaw),
     agentRunBudget: agentRunBudgetFromStoredSettings(parsedRaw),
     completionTokenBudget: completionTokenBudgetFromStoredSettings(parsedRaw),
@@ -1011,6 +1017,12 @@ const activeGrillControllers = new Map<string, AbortController>()
 let mainWindow: BrowserWindow | null = null
 let floatWindow: BrowserWindow | null = null
 let appQuitting = false
+let desktopUpdates: DesktopUpdates | null = null
+const updateRestartBusy = (): boolean => Boolean(
+  runKernel?.listActive().length || activityBus?.listActive().length || activeChats.size || activeGrillControllers.size
+  || styleV2Service?.hasActiveJobs
+  || activeChildProcesses().length || desktopExtensions?.hasActiveHosts || pendingDesktopOperations()
+)
 let floatingRunState: FloatingRunState = { ...EMPTY_FLOATING_RUN_STATE }
 let floatUserHidden = false
 
@@ -1190,14 +1202,24 @@ function createFloatWindow(): BrowserWindow {
   const draftFlushBarrier = createDraftFlushBarrier()
   registerIpc('composer:draftsFlushed', { schema: schemas.composerDraftFlushSchema }, (event, input) =>
     draftFlushBarrier.acknowledge(event.sender.id, input.token, input.ok))
-  const runShutdownCoordinator = async (): Promise<void> => {
+  const cancelUpdateRestart = (message: string): void => {
+    quitState = 'idle'
+    appQuitting = false
+    reserveUpdateRestart(false)
+    desktopUpdates?.restartCancelled(message)
+    if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('composer:flushCancelled')
+  }
+  const runShutdownCoordinator = async (forUpdate = false): Promise<void> => {
     if (quitState !== 'idle') return
     quitState = 'coordinating'
     try {
+      if (forUpdate && updateRestartBusy()) { cancelUpdateRestart('仍有任务正在进行，请完成后再重启。'); return }
+      if (forUpdate && (!mainWindow || mainWindow.isDestroyed() || mainWindow.webContents.isLoading())) { cancelUpdateRestart('主窗口尚未就绪，请稍后重试。'); return }
       if (mainWindow && !mainWindow.isDestroyed() && !mainWindow.webContents.isLoading()) {
         const saved = await draftFlushBarrier.request(mainWindow.webContents)
         if (!saved) {
           recordShutdown('composer_draft_flush_failed')
+          if (forUpdate) { cancelUpdateRestart('草稿未能保存，已取消更新重启。请保存后重试。'); return }
           const decision = await dialog.showMessageBox(mainWindow, {
             type: 'warning', title: '草稿尚未保存',
             message: '未发送的草稿尚未保存。', detail: '返回应用可以继续编辑或重试保存。仍然退出将丢失尚未保存的内容。',
@@ -1210,9 +1232,14 @@ function createFloatWindow(): BrowserWindow {
           }
         } else recordShutdown('composer_drafts_flushed')
       }
+      // No cancellation or process termination is allowed to make an update safe.
+      // New IPC work has been fenced since the explicit restart click; recheck
+      // activity admitted just before that click after the async draft barrier.
+      if (forUpdate && updateRestartBusy()) { cancelUpdateRestart('仍有任务正在进行，已取消更新重启。'); return }
       if (runKernel) {
         const actives = runKernel.listActive()
         if (actives.length > 0) {
+          if (forUpdate) { cancelUpdateRestart('仍有任务正在进行，已取消更新重启。'); return }
           recordShutdown('active_run_cancel_requested', { runIds: actives.map((r) => r.runId) })
           await Promise.all(actives.map((r) => runKernel?.cancel(r.runId).catch(() => undefined)))
           // R10（R9-R03）：stream_tool_abort_settled 只在 active run 清零后记录；
@@ -1239,11 +1266,14 @@ function createFloatWindow(): BrowserWindow {
         if (hadExtensionHosts) recordShutdown('extension_hosts_closed')
       } catch (error) {
         recordShutdown('extension_host_close_unconfirmed', { error: error instanceof Error ? error.message : String(error) })
+        if (forUpdate) throw error
       }
       // 子进程树真实终止（childRegistry：跟踪/终止/等待；killed/remaining 由实际结果计算）
+      if (forUpdate && activeChildProcesses().length > 0) { cancelUpdateRestart('仍有外部进程正在运行，已取消更新重启。'); return }
       await galgameStudioPlaytests.shutdown()
       const children = activeChildProcesses()
       if (children.length > 0) {
+        if (forUpdate) { cancelUpdateRestart('仍有外部进程正在运行，已取消更新重启。'); return }
         const r = await terminateChildProcesses()
         recordShutdown('child_process_tree_terminated', { attempted: r.attempted, killed: r.killed, alreadyExited: r.alreadyExited, remaining: r.remaining, pids: r.pids, remainingPids: r.remainingPids })
       } else {
@@ -1259,6 +1289,7 @@ function createFloatWindow(): BrowserWindow {
         recordShutdown('db_checkpoint_close_completed')
       } catch (e) {
         recordShutdown('db_close_failed', { error: e instanceof Error ? e.message : String(e) })
+        if (forUpdate) throw e
       }
       // R12（R11-R04）：窗口关闭移交 Electron quit 流程——close() 触发真实 close 事件
       // （window_close_received trace）后直接 app.quit()（最小 Electron 复现 10/10 路径；
@@ -1271,9 +1302,19 @@ function createFloatWindow(): BrowserWindow {
         w.close() // appQuitting=true 时 close handler 不 prevent；同步触发 close 事件（记录 trace）
       }
       quitState = 'quitting'
-      app.quit()
+      if (forUpdate) desktopUpdates?.installPrepared()
+      else app.quit()
     } catch (e) {
       recordShutdown('shutdown_error', { error: e instanceof Error ? e.message : String(e) })
+      if (forUpdate) {
+        // Preparation failure never falls through to the ordinary quit path.
+        // Once resource disposal starts, do not return a half-closed application
+        // to the writer. Exit naturally without installing; the saved profile
+        // and diagnostics remain available to the next manual launch.
+        if (appQuitting) { recordShutdown('update_install_aborted'); quitState = 'quitting'; app.quit(); return }
+        cancelUpdateRestart('更新重启准备失败。请保存作品并手动重新启动应用后重试。')
+        return
+      }
       await desktopExtensions?.close().catch(() => undefined)
       try {
         contextV2Service?.close()
@@ -1342,6 +1383,7 @@ function createFloatWindow(): BrowserWindow {
   }
 
   app.on('will-quit', () => {
+    desktopUpdates?.stop()
     // R12（R11-R04）：窗口销毁确认——window-all-closed 在 quit 流程中不触发（实测 Electron 43
     // 行为）；will-quit 语义保证所有窗口已关闭，此处记录 settled（真实事件）
     recordShutdown('windows_closed_settled', { winIds: [...closedWindowIds] })
@@ -1497,6 +1539,24 @@ registerIpc('settings:get', {}, async () => {
   const s = await loadSettings()
   return { ...s, apiKey: s.apiKey ? '__CONFIGURED__' : '', apiKeyStorage: await readApiKeyStorage() }
 })
+registerIpc('updates:get', {}, () => desktopUpdates?.snapshot() ?? null)
+registerIpc('runs:readManuscript', { schema: schemas.runsReadManuscriptSchema }, async (_e, input) => {
+  if (!repository) throw new IpcError('repository_unavailable', '运行存储未就绪')
+  return readManuscriptReader(repository, input)
+})
+registerIpc('updates:check', {}, () => desktopUpdates?.check() ?? null)
+registerIpc('updates:preference', { schema: schemas.desktopUpdatePreferenceSchema }, (_event, input) => editSettings(async () => {
+  const settings = await loadSettings()
+  await saveSettings({ ...settings, autoCheckUpdates: input.autoCheck })
+  return desktopUpdates?.preference(input.autoCheck) ?? null
+}))
+registerIpc('updates:restart', {}, () => desktopUpdates?.restart() ?? { ok: false, message: '更新服务尚未就绪。' })
+registerIpc('updates:portable', {}, async () => {
+  const url = desktopUpdates?.snapshot().portableUrl
+  if (!url) return false
+  await shell.openExternal(url)
+  return true
+})
 registerIpc('settings:set', { schema: schemas.settingsSetSchema }, (_e, input) => editSettings(async () => {
   const prev = await loadSettings()
   let next: Settings
@@ -1561,6 +1621,7 @@ registerIpc('settings:set', { schema: schemas.settingsSetSchema }, (_e, input) =
   }
   const preserveLockedKey = input.kind === 'whole' ? input.settings.apiKey === '__CONFIGURED__' : input.key !== 'apiKey'
   await saveSettings(next, preserveLockedKey)
+  if (next.autoCheckUpdates !== prev.autoCheckUpdates) desktopUpdates?.preference(next.autoCheckUpdates !== false)
   // R4.5 Gate 5（S-03）：credential registry 同步——key 变化 → version+1（旧 run 的 ref 即失效
   // fail-closed）；key 清空（删除/换 origin 清除）→ slot 移除
   credentialRegistry.register(next.baseUrl, next.model, next.apiKey)
@@ -4854,6 +4915,30 @@ if (!gotLock) {
       baseDir: app.getPath('userData'),
       getApi: (stage = 'draft') => resolveCreativeApi(stage)
     })
+    let marker: string | null = null
+    try { marker = readFileSync(path.join(path.dirname(process.execPath), 'deepwriter-install.channel'), 'utf8') } catch { /* unpacked/portable */ }
+    const kind = desktopInstallKind({ packaged: app.isPackaged, platform: process.platform, portable: Boolean(process.env.PORTABLE_EXECUTABLE_FILE), marker })
+    const backend = kind === 'nsis' ? new NsisUpdater({ provider: 'github', owner: 'jhdsmb-del', repo: 'DeepWriter', releaseType: 'release' }) : undefined
+    if (backend) {
+      backend.autoDownload = false // drive the download promise, including retry/failure, in one state machine
+      backend.autoInstallOnAppQuit = false
+      backend.allowPrerelease = false
+      backend.allowDowngrade = false
+    }
+    desktopUpdates = new DesktopUpdates({
+      kind, version: app.getVersion(), autoCheck: (await loadSettings()).autoCheckUpdates !== false, backend,
+      stableRelease: () => getStableRelease({ request: net.fetch.bind(net) as typeof fetch }),
+      busy: updateRestartBusy,
+      prepareRestart: () => {
+        if (quitState !== 'idle' || shutdownScheduled) return false
+        reserveUpdateRestart(true)
+        // Let the explicit IPC reply reach the renderer before closing windows.
+        setTimeout(() => void runShutdownCoordinator(true), 500)
+        return true
+      },
+      publish: state => { for (const win of BrowserWindow.getAllWindows()) if (!win.isDestroyed()) win.webContents.send('updates:state', state) }
+    })
+    desktopUpdates.start()
     createWindow()
     app.on('activate', () => {
       if (!mainWindow || mainWindow.isDestroyed()) createWindow()

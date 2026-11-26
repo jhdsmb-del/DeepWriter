@@ -10,6 +10,7 @@ import ProviderRegistryPanel from './ProviderRegistryPanel'
 import ExtensionsPanel from './ExtensionsPanel'
 import { changedSettings } from '../settingsDraft'
 import AgentRunLimits, { agentRunBudgetError } from './AgentRunLimits'
+import DesktopUpdatesPanel from './DesktopUpdatesPanel'
 
 /** 路径字段在 draft 中可能是 {value, dirRefId}（选择器签发）或纯字符串（未变更） */
 type DraftSettings = Omit<Settings, 'workDir' | 'docDir' | 'galgame'> & {
@@ -37,7 +38,7 @@ const ACTION_LABELS: Record<PermissionAction, string> = {
   ask: '询问'
 }
 
-export default function SettingsModal({ onClose }: { onClose: () => void }): React.ReactNode {
+export default function SettingsModal({ onClose, initialSection }: { onClose: () => void; initialSection?: 'updates' }): React.ReactNode {
   const settings = useStore((s) => s.settings)
   const update = useStore((s) => s.updateSettings)
   const permissions = useStore((s) => s.permissions)
@@ -59,7 +60,8 @@ export default function SettingsModal({ onClose }: { onClose: () => void }): Rea
   const [rulePattern, setRulePattern] = useState('')
   const [ruleAction, setRuleAction] = useState<PermissionAction>('allow')
   const [ruleOnce, setRuleOnce] = useState(false)
-  const [section, setSection] = useState<'provider' | 'completion' | 'workspace' | 'permissions' | 'extensions' | 'galgame' | 'memory' | 'experimental'>('provider')
+  const [section, setSection] = useState<'provider' | 'completion' | 'workspace' | 'permissions' | 'extensions' | 'galgame' | 'memory' | 'experimental' | 'updates'>(initialSection ?? 'provider')
+  useEffect(() => { if (initialSection) setSection(initialSection) }, [initialSection])
   const dismiss = useCallback(() => {
     const current = useStore.getState().settings
     baselineRef.current = current
@@ -180,7 +182,8 @@ export default function SettingsModal({ onClose }: { onClose: () => void }): Rea
               ['extensions', '扩展', 'tools'],
               ['galgame', 'Galgame', 'game'],
               ['memory', '项目约定', 'memory'],
-              ['experimental', '实验', 'flask']
+              ['experimental', '实验', 'flask'],
+              ['updates', '应用更新', 'check']
             ] as const).map(([id, label, icon]) => (
               <button key={id} aria-current={section === id ? 'page' : undefined} className={section === id ? 'active' : ''} onClick={() => setSection(id)}>
                 <Icon name={icon} /><span>{label}</span>
@@ -188,6 +191,7 @@ export default function SettingsModal({ onClose }: { onClose: () => void }): Rea
             ))}
           </nav>
           <div className="modal-body">
+          {section === 'updates' && <DesktopUpdatesPanel />}
           {section === 'extensions' && <section className="dw-settings-page"><div className="dw-settings-page-head"><h4>扩展</h4></div><ExtensionsPanel /></section>}
           <section className="dw-settings-page" hidden={section !== 'provider'}>
           <ProviderRegistryPanel onRegisterSave={registerProviderSave} />

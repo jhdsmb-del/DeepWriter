@@ -2,6 +2,12 @@
 
 格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)（简化），按版本记录产品变化。
 
+## 8.0.0
+
+- Windows 安装版后台检查并下载正式更新，确认后重启；免安装版提供对应的便携下载。
+- 支持在长文和任务详情按章读已收稿正文，按章名筛选、分页跳读并返回写作会话。
+- 新增独立 Windows CLI 压缩包，以及无需模型或密钥的 `update check`、`update download` 命令。
+
 ## 6.0.0
 
 - Galgame 工作室改为四个制作阶段，可查看玩家选项、导入已有作品、检查并实际试玩。

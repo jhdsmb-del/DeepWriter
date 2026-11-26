@@ -18,6 +18,7 @@ import type { LongformWorkflowCreateInput, LongformWorkflowDraft, LongformWorkfl
 import type { ExtensionSelection, ExtensionsSnapshot, ExtensionView } from '../shared/extensions'
 import type { DesktopChatStartResult, DesktopCostDecision } from '../shared/ipcSchemas'
 import type { ProviderSetupInput, ProviderSetupUpdateInput } from '../shared/providerSetup'
+import type { DesktopUpdateState } from '../shared/desktopUpdates'
 
 export interface ChatPayload {
   id: string
@@ -43,6 +44,17 @@ export interface ChatPayload {
 }
 
 const api = {
+  runsReadManuscript: (input: import('../shared/manuscriptReader').ManuscriptReaderInput): Promise<import('../shared/manuscriptReader').ManuscriptReaderView | null> => ipcRenderer.invoke('runs:readManuscript', input),
+  updatesGet: (): Promise<DesktopUpdateState | null> => ipcRenderer.invoke('updates:get'),
+  updatesCheck: (): Promise<DesktopUpdateState | null> => ipcRenderer.invoke('updates:check'),
+  updatesPreference: (autoCheck: boolean): Promise<DesktopUpdateState | null> => ipcRenderer.invoke('updates:preference', { autoCheck }),
+  updatesRestart: (): Promise<{ ok: boolean; message: string }> => ipcRenderer.invoke('updates:restart'),
+  updatesOpenPortable: (): Promise<boolean> => ipcRenderer.invoke('updates:portable'),
+  onUpdatesState: (cb: (state: DesktopUpdateState) => void): (() => void) => {
+    const listener = (_event: unknown, state: DesktopUpdateState): void => cb(state)
+    ipcRenderer.on('updates:state', listener)
+    return () => ipcRenderer.removeListener('updates:state', listener)
+  },
   extensionsSnapshot: (): Promise<IpcResult<ExtensionsSnapshot>> => ipcRenderer.invoke('extensions:snapshot', {}),
   extensionsInstallCatalog: (id: string): Promise<IpcResult<ExtensionView>> => ipcRenderer.invoke('extensions:installCatalog', { id }),
   extensionsImportSkill: (): Promise<IpcResult<ExtensionView | null>> => ipcRenderer.invoke('extensions:importSkill', {}),

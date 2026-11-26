@@ -1,6 +1,6 @@
 {
   "name": "deepwriter",
-  "version": "6.0.0",
+  "version": "8.0.0",
   "description": "文本写作助手：对话、长文写作、稿件审校与文件处理",
   "main": "out/main/index.js",
   "author": "deepwriter",
@@ -216,7 +216,8 @@
     "test:release": "node --test scripts/windows-signing.test.cjs scripts/prepare-release.test.cjs scripts/verify-candidate-release.test.cjs scripts/check-asar-redaction.test.cjs scripts/distribution-inventory.test.cjs scripts/assemble-complete-release.test.cjs scripts/build-cli.test.cjs scripts/package-cli.test.cjs scripts/native-notice-resources.test.cjs scripts/distribution-package-bindings.test.cjs scripts/package-notice-resources.test.cjs scripts/exceljs-unzipper-compat.test.cjs scripts/desktop-source-boundary.test.cjs scripts/new-run-narrative-initialization.test.cjs scripts/scene-action-finalization-r6.test.cjs scripts/scene-local-actions-r7.test.cjs && node --test scripts/scene-local-actions-r8.test.cjs && node --test scripts/scene-semantic-evidence.test.cjs",
     "release:inventory": "node scripts/distribution-inventory.cjs",
     "release:assemble": "node scripts/assemble-complete-release.cjs",
-    "release:installation": "esbuild scripts/windows-installation.ts --bundle --format=esm --platform=node --outfile=out/windows-installation.mjs --external:@playwright/test --external:node:sqlite && node out/windows-installation.mjs"
+    "release:installation": "esbuild scripts/windows-installation.ts --bundle --format=esm --platform=node --outfile=out/windows-installation.mjs --external:@playwright/test --external:node:sqlite && node out/windows-installation.mjs",
+    "test:v800": "node --test scripts/desktop-updates.test.cjs scripts/manuscript-reader.test.cjs scripts/public-release.test.cjs scripts/cli-update.test.cjs scripts/package-cli-archive.test.cjs scripts/update-rehearsal.test.cjs"
   },
   "build": {
     "appId": "com.deepwriter.app",
@@ -248,11 +249,18 @@
       "installerIcon": "build/icon.ico",
       "uninstallerIcon": "build/icon.ico",
       "installerHeaderIcon": "build/icon.ico",
-      "artifactName": "DeepWriter-${version}-${arch}-setup.${ext}"
+      "artifactName": "DeepWriter-${version}-${arch}-setup.${ext}",
+      "include": "build/installer.nsh"
     },
     "artifactName": "DeepWriter-${version}-${arch}.${ext}",
     "portable": {
       "artifactName": "DeepWriter-${version}-${arch}-portable.${ext}"
+    },
+    "publish": {
+      "provider": "github",
+      "owner": "jhdsmb-del",
+      "repo": "DeepWriter",
+      "releaseType": "release"
     }
   },
   "devDependencies": {
@@ -265,6 +273,7 @@
     "electron": "^43.3.0",
     "electron-builder": "^26.15.3",
     "electron-vite": "^5.0.0",
+    "js-yaml": "4.3.1",
     "react-markdown": "^10.1.0",
     "remark-gfm": "^4.0.1",
     "typescript": "^7.0.2",
@@ -278,6 +287,7 @@
     "@tanstack/react-virtual": "^3.14.9",
     "diff": "^9.0.0",
     "docx": "^9.7.1",
+    "electron-updater": "6.8.12",
     "exceljs": "^4.4.0",
     "fflate": "^0.8.3",
     "highlight.js": "^11.11.1",

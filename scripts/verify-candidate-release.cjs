@@ -1,4 +1,5 @@
 'use strict'
+const { upgradeBaseline } = require('./upgrade-baseline.cjs')
 
 const fs = require('node:fs')
 const path = require('node:path')
@@ -48,7 +49,7 @@ async function verifyCandidateRelease(dir, version, sourceCommit) {
     }
   }
   const proof = read('installation-verification.json')
-  if (proof.version !== version || proof.sourceCommit !== sourceCommit || proof.upgradedFrom !== '1.2.6' || ['cleanInstall', 'upgradeHistory', 'upgradeCredentials', 'uninstallPreservesData'].some((key) => proof[key] !== true) || proof.installerSha256 !== checksums.get(names[0]) || !/^[a-f0-9]{64}$/.test(proof.baselineSha256 || '')) throw new Error('Candidate installation evidence is incomplete or stale')
+  if (proof.version !== version || proof.sourceCommit !== sourceCommit || proof.upgradedFrom !== upgradeBaseline(version) || ['cleanInstall', 'upgradeHistory', 'upgradeCredentials', 'uninstallPreservesData'].some((key) => proof[key] !== true) || proof.installerSha256 !== checksums.get(names[0]) || !/^[a-f0-9]{64}$/.test(proof.baselineSha256 || '')) throw new Error('Candidate installation evidence is incomplete or stale')
   return metadata
 }
 

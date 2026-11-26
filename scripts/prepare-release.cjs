@@ -1,4 +1,5 @@
 'use strict'
+const { upgradeBaseline } = require('./upgrade-baseline.cjs')
 
 const fs = require('node:fs')
 const path = require('node:path')
@@ -28,7 +29,7 @@ async function verifiedSignatures(root, version, commit, publisher) {
 
 async function verifiedInstallation(directory, version, commit, installer) {
   const installation = JSON.parse(fs.readFileSync(path.join(directory, 'installation-verification.json'), 'utf8'))
-  if (installation.version !== version || installation.sourceCommit !== commit || installation.upgradedFrom !== '1.2.6' || ['cleanInstall', 'upgradeHistory', 'upgradeCredentials', 'uninstallPreservesData'].some((key) => installation[key] !== true)) throw new Error('Installation verification is incomplete or stale')
+  if (installation.version !== version || installation.sourceCommit !== commit || installation.upgradedFrom !== upgradeBaseline(version) || ['cleanInstall', 'upgradeHistory', 'upgradeCredentials', 'uninstallPreservesData'].some((key) => installation[key] !== true)) throw new Error('Installation verification is incomplete or stale')
   if (installation.installerSha256 !== await hashFile(installer) || !/^[a-f0-9]{64}$/.test(installation.baselineSha256 || '')) throw new Error('Installation evidence differs from verified artifacts')
   return installation
 }

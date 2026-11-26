@@ -1,0 +1,45 @@
+/* Manuscript desk: existing slate palette, UI sans for navigation, editorial
+   serif for the page. One reading column; rules separate tools from prose. */
+.dw-shell .run-inspector.dw-manuscript-open { width: min(1080px, calc(100vw - 36px)); height: min(840px, calc(100vh - 36px)); }
+.dw-manuscript-reader { display: flex; flex-direction: column; min-height: 0; flex: 1; overflow: hidden; }
+.dw-manuscript-toolbar { display: flex; align-items: center; gap: 12px; padding: 16px 22px; border-bottom: 1px solid var(--dw-line); }
+.dw-manuscript-toolbar > div { flex: 1; min-width: 0; display: grid; gap: 4px; }
+.dw-manuscript-toolbar b { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--dw-text); font-size: 15px; }
+.dw-manuscript-toolbar span, .dw-manuscript-draft-note { color: var(--dw-muted); font-size: 13px; }
+.dw-manuscript-toolbar button { flex: none; white-space: nowrap; }
+.dw-manuscript-draft-note { margin: 0; padding: 9px 22px; border-bottom: 1px solid var(--dw-line); }
+.dw-manuscript-layout { display: grid; grid-template-columns: 228px minmax(0, 1fr); min-height: 0; flex: 1; }
+.dw-manuscript-contents { display: flex; flex-direction: column; min-height: 0; padding: 16px 10px; border-right: 1px solid var(--dw-line); background: var(--dw-panel); }
+.dw-manuscript-contents > label { display: flex; align-items: center; gap: 8px; margin: 0 6px 12px; padding: 8px 10px; border: 1px solid var(--dw-line-strong); border-radius: 5px; color: var(--dw-muted); }
+.dw-manuscript-contents svg { width: 16px; height: 16px; flex: none; }
+.dw-manuscript-contents input { width: 100%; min-width: 0; border: 0; padding: 0; background: transparent; color: var(--dw-text); font: inherit; }
+.dw-shell .dw-manuscript-reader .dw-manuscript-contents input[type='search'] { min-height: 24px; height: 24px; padding: 0; border: 0; border-radius: 0; background: transparent; box-shadow: none; }
+.dw-manuscript-contents ol { list-style: none; margin: 0; padding: 0; overflow-y: auto; }
+.dw-manuscript-contents button { display: grid; gap: 5px; width: 100%; border: 0; border-left: 2px solid transparent; border-radius: 3px; padding: 11px 14px; color: var(--dw-secondary); background: transparent; text-align: left; line-height: 1.5; overflow-wrap: anywhere; }
+.dw-manuscript-contents button:hover { background: var(--dw-hover); }
+.dw-manuscript-contents button[aria-current] { border-left-color: var(--dw-accent); color: var(--dw-text); background: var(--dw-accent-soft); }
+.dw-manuscript-contents small { font-size: 12px; color: var(--dw-muted); }
+.dw-manuscript-reading { display: flex; flex-direction: column; min-width: 0; min-height: 0; }
+.dw-manuscript-reading article { overflow-y: auto; flex: 1; min-height: 0; padding: 28px clamp(24px, 4vw, 54px) 40px; background: var(--dw-bg); }
+.dw-manuscript-reading h2 { margin: 0 0 24px; color: var(--dw-text); font-size: 22px; font-weight: 580; line-height: 1.6; overflow-wrap: anywhere; }
+.dw-manuscript-prose { white-space: pre-wrap; overflow-wrap: anywhere; font-family: var(--font-editorial); font-size: 18px; line-height: 2; color: var(--dw-text); }
+.dw-manuscript-pagination { display: flex; align-items: center; justify-content: space-between; flex: none; gap: 12px; padding: 12px 24px; border-top: 1px solid var(--dw-line); }
+.dw-manuscript-pagination span { font-size: 13px; color: var(--dw-muted); }
+.dw-manuscript-pagination form { display: flex; align-items: center; gap: 5px; color: var(--dw-muted); font-size: 13px; }
+.dw-manuscript-pagination label { display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; }
+.dw-shell .dw-manuscript-reader .dw-manuscript-pagination input[type='number'] { width: 48px; min-height: 30px; height: 30px; padding: 3px 4px; color: var(--dw-text); background: var(--dw-panel); border: 1px solid var(--dw-line-strong); border-radius: 3px; text-align: center; }
+.dw-manuscript-empty, .dw-manuscript-error { padding: 20px; color: var(--dw-muted); line-height: 1.8; }
+.dw-manuscript-error { color: var(--dw-danger); }
+.dw-manuscript-entry { flex: none; }
+.dw-longform-header > .dw-manuscript-entry { margin-left: auto; }
+@media (max-width: 700px) {
+  .dw-manuscript-layout { grid-template-columns: 170px minmax(0, 1fr); }
+  .dw-manuscript-toolbar { padding: 12px; gap: 8px; flex-wrap: wrap; }
+  .dw-manuscript-toolbar > div { flex-basis: 100%; }
+  .dw-manuscript-contents { padding-inline: 4px; }
+  .dw-manuscript-contents button { padding-inline: 9px; }
+  .dw-manuscript-reading article { padding: 20px; }
+  .dw-manuscript-prose { font-size: 17px; }
+  .dw-manuscript-pagination { padding-inline: 12px; }
+  .dw-manuscript-pagination form { gap: 0; }
+}

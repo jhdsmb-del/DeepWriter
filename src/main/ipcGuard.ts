@@ -74,6 +74,19 @@ export interface IpcHandleOpts<S> {
 
 const MAX_DEFAULT = 1024 * 1024
 
+// A restart must not race an already-admitted operation or admit new work while
+// the renderer flushes drafts. Ordinary quitting keeps its existing contract.
+let updateRestartReserved = false
+let pendingOperations = 0
+const updateBarrierChannels = new Set(['composer:draftSave', 'composer:draftsFlushed', 'composer:draftsList', 'updates:get'])
+const updateReadChannels = new Set(['updates:get', 'updates:check', 'updates:restart', 'updates:portable'])
+const countsForUpdate = (channel: string): boolean => !updateReadChannels.has(channel) && !updateBarrierChannels.has(channel)
+export function pendingDesktopOperations(): number { return pendingOperations }
+export function reserveUpdateRestart(reserved: boolean): void { updateRestartReserved = reserved }
+function admit(channel: string): void {
+  if (updateRestartReserved && !updateBarrierChannels.has(channel)) throw new IpcError('update_restart_pending', '正在准备更新重启，请稍候。')
+}
+
 function validatePayload(value: unknown, opts: IpcHandleOpts<unknown>): void {
   const raw = JSON.stringify(value)
   if (raw !== undefined && raw.length > (opts.maxPayloadBytes ?? MAX_DEFAULT)) {
@@ -102,6 +115,9 @@ export function registerIpc<S, R>(
   ipcMain.handle(channel, async (event, input) => {
     assertTrustedSender(event)
     const safeInput = parseInput(input, opts)
+    admit(channel)
+    const counted = countsForUpdate(channel)
+    if (counted) pendingOperations++
     try {
       return await handler(event, safeInput)
     } catch (e) {
@@ -113,6 +129,8 @@ export function registerIpc<S, R>(
       const code = (e as Error & { code?: string }).code ?? 'internal_error'
       console.warn(`[ipc] ${channel} 失败：`, (e as Error).message)
       throw new IpcError(code, msg)
+    } finally {
+      if (counted) pendingOperations--
     }
   })
 }
@@ -127,6 +145,7 @@ export function registerIpcOn<S>(
     try {
       assertTrustedSender(event)
       const safeInput = parseInput(input, opts)
+      admit(channel)
       handler(event, safeInput)
     } catch (e) {
       console.warn(`[ipc] ${channel} 拒绝：`, (e as Error).message)

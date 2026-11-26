@@ -6,6 +6,8 @@ export const HELP = `DeepWriter CLI ${__DEEPWRITER_VERSION__} · Node 22.13+
 无参数交互终端：持续聊天（默认联网）；/write 字数 任务 可进入逐问长文。
 
 galgame routes <项目目录> [--json]    查看 Ren’Py 剧情节点、玩家选项和跳转位置
+update check [--json]              主动检查官方稳定版；无需配置或 Key
+update download <目录> [--json]    下载并校验独立 CLI ZIP；不覆盖、不安装、不运行
 brief show | brief init [--input 文件]  查看或创建当前工作目录的写作约定（DEEPWRITER.md）
 config [show|set]                    查看/保存非密钥 Provider 配置
 chat [任务或 -] [--session ID]      流式对话（默认联网）；--input 文件 或管道读取任务

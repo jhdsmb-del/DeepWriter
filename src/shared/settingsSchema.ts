@@ -57,6 +57,7 @@ const agentRunBudget = z.object({
 
 // The legacy settings route edits built-in models. Custom endpoints/models use ProviderRegistry.
 const fields = z.object({
+  autoCheckUpdates: z.boolean(),
   outputTokenLimit: z.number().int().min(1).max(1000000).nullable(),
   agentRunBudget,
   apiKey: z.string().max(4096), userPresetPrompt: z.string().refine(v => Array.from(v).length <= USER_PRESET_PROMPT_MAX_CHARS),

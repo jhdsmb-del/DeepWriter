@@ -1,8 +1,9 @@
 name: Windows Release
 
 on:
-  # Published binaries are mirrored here. Keep the upstream release job reusable
-  # without launching a second Windows distribution on a mirror tag.
+  # Manual builds stage a draft from the selected commit. Only publishing
+  # that draft promotes it to the channel consumed by installed applications.
+  workflow_dispatch:
   workflow_call:
 
 permissions:
@@ -74,6 +75,7 @@ jobs:
         run: |
           $version = (Get-Content package.json | ConvertFrom-Json).version
           $tag = $env:GITHUB_REF_NAME -replace '^(release|publish-retry)/', ''
+          if ($env:GITHUB_EVENT_NAME -eq 'workflow_dispatch') { $tag = "v$version" }
           if ($tag -ne "v$version") { throw 'Ref and application version differ' }
           if (!(Test-Path "docs/RELEASE_NOTES_$version.md")) { throw 'Release notes are missing' }
           "RELEASE_TAG=$tag" | Add-Content $env:GITHUB_ENV
@@ -163,12 +165,15 @@ jobs:
           GH_REPO: ${{ github.repository }}
         run: |
           $baseline = Join-Path $env:RUNNER_TEMP 'upgrade-baseline'
-          gh release download v1.2.6 --pattern 'DeepWriter-1.2.6-x64-setup.exe' --pattern 'SHA256SUMS.txt' --dir $baseline
+          $old = (node scripts/upgrade-baseline.cjs).Trim()
+          $name = "DeepWriter-$old-x64-setup.exe"
+          gh release download "v$old" --pattern $name --pattern 'SHA256SUMS.txt' --dir $baseline
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          $installer = Join-Path $baseline 'DeepWriter-1.2.6-x64-setup.exe'
-          $expected = (Get-Content (Join-Path $baseline 'SHA256SUMS.txt') | Where-Object { $_ -match '  DeepWriter-1.2.6-x64-setup.exe$' }) -split '  '
+          $installer = Join-Path $baseline $name
+          $expected = (Get-Content (Join-Path $baseline 'SHA256SUMS.txt') | Where-Object { $_.EndsWith("  $name") }) -split '  '
           if ($expected.Length -ne 2 -or (Get-FileHash $installer -Algorithm SHA256).Hash.ToLowerInvariant() -cne $expected[0]) { throw 'Upgrade baseline checksum differs' }
           "DW_UPGRADE_INSTALLER=$installer" | Add-Content $env:GITHUB_ENV
+          "DW_UPGRADE_BASELINE=$old" | Add-Content $env:GITHUB_ENV
       - name: Actual clean install, upgrade and uninstall
         id: installation
         if: always() && steps.baseline.outcome == 'success' && steps.package.outcome == 'success' && steps.asar.outcome == 'success'
@@ -226,6 +231,13 @@ jobs:
           $version = (Get-Content package.json | ConvertFrom-Json).version
           node scripts/assemble-complete-release.cjs --release-dir "release/$env:RELEASE_TAG" --cli-dir "out/cli-package/$version" --inventory out/release-inventory.json --notices out/THIRD_PARTY_NOTICES.txt --electron-dir dist/win-unpacked --source-commit $env:RELEASE_SOURCE
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          if ([int]($version.Split('.')[0]) -ge 8) {
+            node scripts/package-cli-archive.cjs "out/cli-package/$version" "out/DeepWriter-$version-cli-win-x64.zip"
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+            node scripts/verify-update-feed.cjs dist $version
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+            Copy-Item -LiteralPath @('dist/latest.yml',"dist/DeepWriter-$version-x64-setup.exe.blockmap","out/DeepWriter-$version-cli-win-x64.zip") -Destination release
+          }
       - uses: actions/upload-artifact@v4
         with:
           name: windows-release-${{ steps.version.outputs.tag }}
@@ -248,7 +260,7 @@ jobs:
     concurrency:
       group: publish-assets-${{ needs.build.outputs.tag }}
       cancel-in-progress: false
-    if: startsWith(github.ref, 'refs/tags/') || startsWith(github.ref, 'refs/heads/publish-retry/')
+    if: github.event_name == 'workflow_dispatch' || startsWith(github.ref, 'refs/tags/') || startsWith(github.ref, 'refs/heads/publish-retry/')
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
@@ -290,21 +302,27 @@ jobs:
         shell: bash
         run: |
           version="${RELEASE_TAG#v}"
-          git fetch --no-tags --depth=1 origin "refs/tags/$RELEASE_TAG"
-          test "$(git rev-parse 'FETCH_HEAD^{commit}')" = "$RELEASE_SOURCE"
+          if [ "$GITHUB_EVENT_NAME" != workflow_dispatch ]; then
+            git fetch --no-tags --depth=1 origin "refs/tags/$RELEASE_TAG"
+            test "$(git rev-parse 'FETCH_HEAD^{commit}')" = "$RELEASE_SOURCE"
+          fi
           notes="docs/RELEASE_NOTES_${version}.md"
           if gh release view "$RELEASE_TAG" --json isDraft > release-state.json 2>/dev/null; then
             node -e "if (!require('./release-state.json').isDraft) throw new Error('Refusing to change an already published release')"
+            gh release edit "$RELEASE_TAG" --target "$RELEASE_SOURCE" --notes-file "$notes"
           else
-            gh release create "$RELEASE_TAG" --verify-tag --draft --title "DeepWriter $RELEASE_TAG" --notes-file "$notes"
+            gh release create "$RELEASE_TAG" --target "$RELEASE_SOURCE" --draft --title "DeepWriter $RELEASE_TAG" --notes-file "$notes"
           fi
           desktop="release-files/$RELEASE_TAG"
           assets=("$desktop"/*.exe "$desktop/SHA256SUMS.txt" "$desktop/release.json" "$desktop"/SBOM_DEPENDENCIES_*.md "$desktop/installation-verification.json" "release-files/DeepWriter-$version-complete.zip" "release-files/DeepWriter-$version-complete.zip.manifest.json" "release-files/DeepWriter-$version-complete.zip.SHA256SUMS.txt")
           if [ -f "$desktop/signature-verification.json" ]; then
             assets+=("$desktop/signature-verification.json")
           fi
+          if [ "${version%%.*}" -ge 8 ]; then
+            assets+=("release-files/latest.yml" "release-files/DeepWriter-$version-x64-setup.exe.blockmap" "release-files/DeepWriter-$version-cli-win-x64.zip")
+          fi
           gh release upload "$RELEASE_TAG" "${assets[@]}" --clobber
-          gh release edit "$RELEASE_TAG" --draft=false --prerelease=false --latest=true
+          if [ "$GITHUB_EVENT_NAME" != workflow_dispatch ]; then gh release edit "$RELEASE_TAG" --draft=false --prerelease=false --latest=true; fi
       - name: Download and verify the published release assets
         shell: bash
         run: |
@@ -316,7 +334,7 @@ jobs:
           node scripts/verify-complete-download.cjs "$received" "$version" "$RELEASE_SOURCE"
 
   status:
-    if: always()
+    if: always() && github.event_name != 'workflow_dispatch'
     needs: [build, publish]
     runs-on: ubuntu-latest
     timeout-minutes: 5

@@ -15,6 +15,8 @@ import type { NarrativeSemanticReviewDecision, NarrativeStateDelta } from '../..
 import type { NarrativeReviewPrompt } from './store'
 import { modelFailureNotice } from './modelFailure'
 import PermissionDialog from './components/PermissionDialog'
+import { useDesktopUpdates } from './hooks/useDesktopUpdates'
+import './desktopUpdates.css'
 
 const REVIEW_DECISION_LABELS: Record<NarrativeSemanticReviewDecision, string> = {
   accept_delta: '接受修正状态',
@@ -86,6 +88,8 @@ export default function App(): React.ReactNode {
   const closeUnknownCost = useCallback(() => decideUnknownCost('cancel'), [decideUnknownCost])
   const unknownCostDialogRef = useDialogFocus<HTMLDivElement>(Boolean(unknownCostPrompt), closeUnknownCost)
   const [showSettings, setShowSettings] = useState(false)
+  const updates = useDesktopUpdates()
+  const [settingsInitialSection, setSettingsInitialSection] = useState<'updates' | undefined>()
   const closeSettings = useCallback(() => setShowSettings(false), [])
   const settingsPresent = usePresence(showSettings)
   const workspaceRef = useRef<HTMLElement>(null)
@@ -200,6 +204,7 @@ export default function App(): React.ReactNode {
           </details>
         </nav>
         <div className="dw-topbar-actions">
+          {(updates?.phase === 'ready' || updates?.phase === 'available') && <button className="dw-text-btn dw-update-indicator" title={updates.message} onClick={() => { setSettingsInitialSection('updates'); setShowSettings(true) }}>有可用更新</button>}
           {(running || submitting || recoverableRuns.length > 0) && <span className={`dw-run-status${running ? ' running' : ''}`}>
             <span className="dw-status-dot" />
             {submitting ? '提交中' : running ? '运行中' : recoverableRuns.length > 0 ? '待处理' : '就绪'}
@@ -263,7 +268,7 @@ export default function App(): React.ReactNode {
           )}
         </main>
       </div>
-      {settingsPresent && <div className={`dw-dialog-presence${showSettings ? '' : ' is-exiting'}`} inert={!showSettings} aria-hidden={!showSettings || undefined}><Suspense fallback={<div role="status" className="toast">正在加载设置…</div>}><SettingsModal onClose={closeSettings} /></Suspense></div>}
+      {settingsPresent && <div className={`dw-dialog-presence${showSettings ? '' : ' is-exiting'}`} inert={!showSettings} aria-hidden={!showSettings || undefined}><Suspense fallback={<div role="status" className="toast">正在加载设置…</div>}><SettingsModal onClose={closeSettings} initialSection={settingsInitialSection} /></Suspense></div>}
       {unknownCostPrompt && (
         <div className="modal-overlay dw-dialog-overlay" role="presentation">
           <div ref={unknownCostDialogRef} tabIndex={-1} className="modal dw-dialog dw-recovery-modal" role="dialog" aria-modal="true" aria-labelledby="dw-unknown-cost-title" aria-describedby="dw-unknown-cost-description">

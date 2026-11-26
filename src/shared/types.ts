@@ -175,6 +175,8 @@ export const MODELS = [
 ] as const
 
 export interface Settings {
+  /** Check the fixed public stable feed in packaged desktop builds. */
+  autoCheckUpdates?: boolean
   /** null uses provider defaults; maxTokens remains a local planning reserve. */
   outputTokenLimit?: number | null
   agentRunBudget?: import('./agentRunBudget').AgentRunBudgetSettings

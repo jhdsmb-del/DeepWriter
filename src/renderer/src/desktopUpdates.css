@@ -1,0 +1,9 @@
+.dw-update-status { padding: 18px 0; border-bottom: 1px solid var(--dw-line-strong); margin-bottom: 20px; }
+.dw-update-status strong { font-size: 17px; color: var(--dw-text); }
+.dw-update-status p, .dw-update-confirm p { font-size: 14px; line-height: 1.7; color: var(--dw-secondary); max-width: 52em; }
+.dw-update-status small { display: block; color: var(--dw-muted); font-size: 13px; margin-top: 14px; }
+.dw-update-status progress { display: block; width: min(100%, 460px); height: 7px; accent-color: var(--dw-accent); margin-top: 18px; }
+.dw-update-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin-bottom: 24px; }
+.dw-update-confirm { border-left: 2px solid var(--dw-accent); padding-left: 18px; margin: 0 0 22px; }
+.dw-update-indicator { white-space: nowrap; color: var(--dw-accent); font-size: 13px; }
+.dw-updates-page .dw-switch { margin: 8px 0 18px; }

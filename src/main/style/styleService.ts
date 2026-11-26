@@ -44,6 +44,7 @@ export interface BuildProfileResult {
 }
 
 export interface StyleService {
+  readonly hasActiveJobs: boolean
   buildProfile(sourceTexts: { name: string; text: string }[], opts?: { backgroundTexts?: { name: string; text: string }[] }): Promise<BuildProfileResult>
   buildExemplars(profileId: string, onProgress?: (done: number, total: number) => void): Promise<{ count: number; failedCount: number }>
   startJob(profileId: string, task: StyleGenTask): Promise<{ jobId: string }>
@@ -131,6 +132,7 @@ export function createStyleService(opts: StyleServiceOpts): StyleService {
   }
 
   return {
+    get hasActiveJobs() { return aborts.size > 0 },
     async buildProfile(sourceTexts, opts) {
       const sections: { work?: string; workTitle: string; chapterOrdinal: number; text: string }[] = []
       let chapterSeq = 0
@@ -267,7 +269,6 @@ export function createStyleService(opts: StyleServiceOpts): StyleService {
       // 配置快照：job 固化 model/prompt/profile/source hashes；运行中改设置不影响本 job
       const api = await opts.getApi('draft')
       const reviewApi = task.fidelity === 'light' ? null : await opts.getApi('review')
-      aborts.set(jobId, abort)
       const corpus = await exemplars.getCorpus(profileId)
       const job: StyleJobState = {
         jobId,
@@ -289,6 +290,7 @@ export function createStyleService(opts: StyleServiceOpts): StyleService {
         }
       }
       await saveJob(job)
+      aborts.set(jobId, abort)
       void runJob(job, abort.signal, api, reviewApi)
       return { jobId }
     },
