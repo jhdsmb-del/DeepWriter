@@ -203,7 +203,7 @@
     "test:longform-recovery": "node --test scripts/longform-confirmed-recovery.test.cjs scripts/longform-delivery-recovery.test.cjs scripts/strong-theme-scope.test.cjs scripts/narrative-review-capabilities.test.cjs scripts/narrative-action-parity.test.cjs scripts/longform-review-projection.test.cjs scripts/critic-opaque-boundary.test.cjs",
     "test:runtime-boundary": "node --test scripts/cli-runtime-boundary.test.cjs scripts/grill-workflow-sync.test.cjs scripts/context-preview-envelope.test.cjs scripts/authorized-eval-budget.test.cjs scripts/cli-quality-preflight.test.cjs scripts/eval-pricing.test.cjs scripts/commercial-narrative-seams.test.cjs scripts/electron-shutdown-selector.test.cjs scripts/desktop-cost-consent.test.cjs scripts/scene-predicate-local.test.cjs scripts/scene-beat-auto-repair.test.cjs scripts/cli-quality-r5-preflight.test.cjs scripts/cli-quality-r6-preflight.test.cjs",
     "test:cli": "node --test scripts/cli-user-path.test.cjs",
-    "test:extensions": "node --test scripts/cli-extensions.test.cjs scripts/desktop-extensions.test.cjs",
+    "test:extensions": "node -e \"require('electron')\" && node --test scripts/cli-extensions.test.cjs scripts/desktop-extensions.test.cjs",
     "test:providers": "node --test scripts/provider-expansion.test.cjs scripts/user-reference-pricing.test.cjs scripts/deepseek-reasoning.test.cjs",
     "cli:build": "node scripts/build-cli.cjs",
     "cli:package": "node scripts/package-cli.cjs",

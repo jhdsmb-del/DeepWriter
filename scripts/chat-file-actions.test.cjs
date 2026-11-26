@@ -10,7 +10,8 @@ test('local filename candidates never authorize launching; fenced code and URLs 
  for(const p of ['https://x/a.md','file:///a.md','\\\\server\\a.md','//server/a.md','a.md:evil','%2F%2Fserver/a.md','a%00.md']) assert.equal(chatFileCandidate(p),null,p)
 })
 test('facts survive legacy envelopes; frozen roots, collisions, unknown dialog paths, deletion and symlink changes cannot select a wrong file',async()=>{
- const home=await fs.mkdtemp(path.join(os.tmpdir(),'dw-chat-file-unit-'));const work=path.join(home,'old'),doc=path.join(home,'doc');await fs.mkdir(work);await fs.mkdir(doc)
+ // A legacy receipt models an ordinary path, not macOS /var -> /private/var.
+ const home=await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(),'dw-chat-file-unit-')));const work=path.join(home,'old'),doc=path.join(home,'doc');await fs.mkdir(work);await fs.mkdir(doc)
  const run={run_id:'r',session_id:'s',config_json:JSON.stringify({workDir:work,docDir:doc})};let facts=[]
  const repo={getRun:id=>id==='r'?run:null,chatFileMessageMentions:(s,r,c)=>s==='s',getRunWrittenFiles:()=>facts}
  const anchor=c=>({kind:'message',sessionId:'s',messageId:'m_r_assistant',candidate:c})
