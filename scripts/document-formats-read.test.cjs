@@ -117,10 +117,13 @@ test('factory standalone CLI actually reads EPUB and explicitly reports PDF not 
   for (const output of Object.values(meta.outputs)) for (const item of output.imports) assert.ok(item.external && isBuiltin(item.path), item.path)
   const faults = [], requests = []
   const server = http.createServer((req, res) => {
-    let raw = ''; req.on('data', bytes => { raw += bytes }); req.on('end', () => {
+    req.setEncoding('utf8'); let raw = ''; req.on('data', bytes => { raw += bytes }); req.on('end', () => {
       try {
         const body = JSON.parse(raw); requests.push(body)
         const calls = requests.length === 1
+        if (calls) for (const toolName of ['read_file', 'search_files']) {
+          assert.match(body.tools.find(t => t.function.name === toolName).function.description, /PDF请用桌面版/)
+        }
         const receipts = body.messages.filter(message => message.role === 'tool').map(message => JSON.parse(message.content))
         let answer
         if (!calls) {

@@ -14,6 +14,7 @@ import { deliverManuscript } from './manuscriptDelivery'
 import { manuscriptDraftInfo, saveManuscriptDraft } from './manuscriptDraftExport'
 import { readManuscriptReader } from './manuscriptReader'
 import { getRunWorkPlan } from './workPlan'
+import { WORK_PLAN_TOOL } from '../shared/workPlan'
 import { queueWorkSteering, workSteeringView } from './workSteering'
 import { freezeRunWebAccess } from './runWebAccess'
 import { removeRunCallLimit } from './runCallLimitAuthorization'
@@ -2373,8 +2374,9 @@ registerIpc('runs:get', { schema: schemas.runsGetSchema }, async (_e, input) => 
   if (!repository) return null
   const r = repository.getRun(input.runId)
   if (!r) return null
-  return { runId: r.run_id, sessionId: r.session_id, status: r.status, phase: r.phase, errorCode: r.error_code, errorMessage: r.error_message, startedAt: r.started_at, updatedAt: r.updated_at, config: JSON.parse(r.config_json || '{}'), manuscriptDraft: manuscriptDraftInfo(repository, r.run_id), workPlan: getRunWorkPlan(repository, r.run_id), turns: repository.getTurnsByRun(r.run_id).map((t) => ({ role: t.role, content: t.content.slice(0, 200) })) }
+  return { runId: r.run_id, sessionId: r.session_id, status: r.status, phase: r.phase, errorCode: r.error_code, errorMessage: r.error_message, startedAt: r.started_at, updatedAt: r.updated_at, config: JSON.parse(r.config_json || '{}'), manuscriptDraft: manuscriptDraftInfo(repository, r.run_id), workPlan: getRunWorkPlan(repository, r.run_id), turns: repository.getRunTurnPreviews(r.run_id) }
 })
+registerIpc('runs:getWorkPlan', { schema: schemas.runsGetSchema }, async (_e, input) => repository ? getRunWorkPlan(repository, input.runId) : null)
 const steeringPublicError = (error: unknown): IpcError | undefined => error instanceof Error && error.message.startsWith('steering_') ? new IpcError('steering_refused', error.message) : undefined
 registerIpc('runs:steer', { schema: schemas.workSteeringSchema, publicError: steeringPublicError }, async (_event, input) => {
   if (!repository) throw new IpcError('repository_unavailable', '运行存储未就绪')
@@ -3467,6 +3469,13 @@ function initRunKernel(): void {
       return { ok: true, checkpointId: `ck-${runId.slice(0, 8)}` }
     },
     onEvent: (runId, ev) => {
+      // Tool events follow the durable upsert. Notify once per committed plan
+      // or terminal boundary; subscribers fetch only the validated checklist.
+      if (ev.type === 'terminal' || ev.type === 'tool' && ev.toolCall.name === WORK_PLAN_TOOL && ev.toolCall.status === 'completed') {
+        for (const window of BrowserWindow.getAllWindows()) {
+          if (!window.isDestroyed()) window.webContents.send('runs:workPlanUpdated', { runId })
+        }
+      }
       const cfg = configForRun(runId)
       const isTerminal = ev.type === 'terminal'
       const terminalRun = isTerminal ? (ev as { run?: { status?: string; errorMessage?: string } }).run : undefined

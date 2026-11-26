@@ -1,6 +1,7 @@
 import { createRequire } from 'node:module'
 import { spawn } from 'node:child_process'
 import { dirname } from 'node:path'
+export const pdfTextAvailable = true
 
 export interface PdfTextResult {
   text: string

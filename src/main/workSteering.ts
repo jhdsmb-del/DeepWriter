@@ -3,7 +3,7 @@ import { isWorkSteeringConfig, workSteeringTurnPrefix, WORK_STEERING_MAX_CHARS, 
 
 const prefix = 'work_steering_v1:'
 const turnIdFor = (runId: string, requestId: string): string => workSteeringTurnPrefix(runId) + requestId
-type Port = Pick<Repository, 'tx' | 'getRun' | 'getRunSteeringRows' | 'saveRunEvidence' | 'getTurnsByRun' | 'appendTurn' | 'getToolCallsByRun' | 'getSessionMessages' | 'appendSessionMessage' | 'moveActiveAssistantAfterSteering'>
+type Port = Pick<Repository, 'tx' | 'getRun' | 'getRunSteeringRows' | 'saveRunEvidence' | 'appendTurn' | 'getSteeringAdmission' | 'nextSessionMessageSeq' | 'acceptSteeringMessage' | 'appendSessionMessage' | 'moveActiveAssistantAfterSteering'>
 const validId = (id: unknown): id is string => typeof id === 'string' && /^[a-zA-Z0-9_-]{1,128}$/.test(id)
 function runFor(repo: Port, runId: string, sessionId: string) {
   if (!validId(runId) || !validId(sessionId)) throw new Error('steering_invalid_identity：运行或会话标识无效')
@@ -46,8 +46,7 @@ export function queueWorkSteering(repo: Port, input: WorkSteeringInput): WorkSte
     if (!['queued', 'running', 'recoverable', 'waiting_user', 'recovery_required', 'cancelling', 'cancel_requested'].includes(run.status)) throw new Error('steering_run_finished：运行已结束，未发送；请在新任务中补充')
     result = { ...input, schemaVersion: 1, sequence: (previous.at(-1)?.sequence ?? 0) + 1, status: 'pending', createdAt: Date.now() }
     repo.saveRunEvidence(input.runId, prefix + input.requestId, JSON.stringify(result))
-    const messages = repo.getSessionMessages(input.sessionId)
-    repo.appendSessionMessage({ msg_id: 'm_' + turnIdFor(input.runId, input.requestId), session_id: input.sessionId, seq: Math.max(0, ...messages.map(item => item.seq)) + 1,
+    repo.appendSessionMessage({ msg_id: 'm_' + turnIdFor(input.runId, input.requestId), session_id: input.sessionId, seq: repo.nextSessionMessageSeq(input.sessionId),
       role: 'user', content: input.text, status: 'thinking', created_at: result.createdAt })
     repo.moveActiveAssistantAfterSteering(input.runId, input.sessionId)
   }, 'immediate')
@@ -62,19 +61,17 @@ export function consumeWorkSteering(repo: Port, runId: string, sessionId: string
   repo.tx(() => {
     const run = runFor(repo, runId, sessionId)
     if (!['running', 'queued'].includes(run.status)) return
-    if (repo.getToolCallsByRun(runId).some(tool => ['requested', 'running', 'side_effect_unknown'].includes(tool.status))) return
     const item = read(repo, runId, sessionId).find(message => message.status === 'pending')
     if (!item) return
-    const history = repo.getTurnsByRun(runId), turnId = turnIdFor(runId, item.requestId)
-    if (history.some(turn => turn.turn_id === turnId)) throw new Error('steering_queue_corrupt：待处理指令已存在于上下文，未重复追加')
-    const canonical = repo.getSessionMessages(sessionId).find(message => message.msg_id === 'm_' + turnId)
-    if (!canonical || canonical.role !== 'user' || canonical.content !== item.text || canonical.status !== 'thinking') throw new Error('steering_queue_corrupt：补充指令与会话记录不一致，未消费')
-    const turn: TurnRow = { turn_id: turnId, run_id: runId, turn_seq: Math.max(0, ...history.map(row => row.turn_seq)) + 1,
+    const turnId = turnIdFor(runId, item.requestId), admission = repo.getSteeringAdmission(runId, turnId)
+    if (admission.busy) return
+    if (admission.duplicate) throw new Error('steering_queue_corrupt：待处理指令已存在于上下文，未重复追加')
+    if (!repo.acceptSteeringMessage(sessionId, 'm_' + turnId, item.text)) throw new Error('steering_queue_corrupt：补充指令与会话记录不一致，未消费')
+    const turn: TurnRow = { turn_id: turnId, run_id: runId, turn_seq: admission.nextSeq,
       role: 'user', content: item.text, reasoning_content: null, tool_calls_json: null, tool_result_json: null, plan_state: null, created_at: Date.now() }
     repo.appendTurn(turn)
     // Only admitted input becomes accepted conversation history. Pending
     // instructions for a stopped run must not silently steer a later run.
-    repo.appendSessionMessage({ ...canonical, status: 'done' })
     repo.saveRunEvidence(runId, prefix + item.requestId, JSON.stringify({ ...item, status: 'applied', turnId, appliedAt: turn.created_at }))
     turns.push(turn)
   }, 'immediate')

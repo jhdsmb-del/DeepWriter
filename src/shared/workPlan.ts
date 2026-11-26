@@ -5,3 +5,6 @@ export interface WorkPlanSnapshot {
   blockedOn?: string
   steps: { text: string; status: WorkStepStatus }[]
 }
+
+/** Invalidation only; renderers read the committed receipt, not tool output. */
+export interface WorkPlanUpdate { runId: string }

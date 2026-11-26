@@ -8,10 +8,10 @@ const root = path.resolve(__dirname, '..')
 
 async function verifyWorkPlan({ screenshots = process.env.DW_WORK_PLAN_SCREENSHOTS, onWindow } = {}) {
   const home = await fs.mkdtemp(path.join(os.tmpdir(), 'dw-desktop-work-plan-'))
-  let app, page, release, requests = 0, serverError
+  let app, page, release, releaseClear, requests = 0, clearingRequests = 0, serverError
   const first = [{ text: '读取两份资料并找出差异', status: 'done' }, { text: '整理修改建议', status: 'in_progress' }, { text: '核对全部交付项', status: 'pending' }]
   const second = [{ ...first[0] }, { ...first[1], status: 'done' }, { ...first[2], status: 'in_progress' }]
-  const server = http.createServer((req, res) => { let raw = ''; req.on('data', part => { raw += part }); req.on('end', () => {
+  const server = http.createServer((req, res) => { req.setEncoding('utf8'); let raw = ''; req.on('data', part => { raw += part }); req.on('end', () => {
     try {
       const body = JSON.parse(raw)
       if (!body.stream && body.tools?.[0]?.function?.name === 'deepwriter_tool_probe') {
@@ -26,6 +26,15 @@ async function verifyWorkPlan({ screenshots = process.env.DW_WORK_PLAN_SCREENSHO
         res.end('data: ' + JSON.stringify({ choices: [{ delta, finish_reason: steps ? 'tool_calls' : 'stop' }] }) + '\n\ndata: [DONE]\n\n')
       }
       const plain = body.messages.some(message => message.role === 'user' && message.content.includes('单步问候'))
+      const clearing = body.messages.some(message => message.role === 'user' && message.content.includes('再撤回清单'))
+      if (clearing) {
+        // Superseded bookkeeping is intentionally compacted on the real wire;
+        // fixture stages must not count the remaining tool-history messages.
+        clearingRequests++
+        if (clearingRequests === 1) return reply(first)
+        if (clearingRequests === 2) { releaseClear = () => reply([]); return }
+        return reply()
+      }
       if (plain || requests >= 3) return reply()
       assert.ok(body.tools.some(tool => tool.function.name === 'update_work_plan'))
       if (requests === 1) reply(first)
@@ -33,9 +42,9 @@ async function verifyWorkPlan({ screenshots = process.env.DW_WORK_PLAN_SCREENSHO
     } catch (error) { serverError = error; res.destroy(error) }
   }) })
   const launch = async () => {
-    app = await _electron.launch({ args: [path.join(root, process.env.DW_UI_BUILD_DIR || 'out', 'main/index.js'), '--user-data-dir=' + home], env: { ...process.env, DEEPWRITER_API_KEY: '', NODE_ENV: 'test', DW_TEST_MODE: '1', DW_TEST_USERDATA: home } })
+    app = await _electron.launch({ args: [process.env.DW_WORK_PLAN_BOOTSTRAP || path.join(root, process.env.DW_UI_BUILD_DIR || 'out', 'main/index.js'), '--disable-renderer-backgrounding', '--disable-background-timer-throttling', '--user-data-dir=' + home], env: { ...process.env, DEEPWRITER_API_KEY: '', NODE_ENV: 'test', DW_TEST_MODE: '1', DW_TEST_USERDATA: home } })
     page = await app.firstWindow(); page.setDefaultTimeout(12000)
-    onWindow?.(app, page)
+    await onWindow?.(app, page)
     await page.getByRole('textbox', { name: '任务内容' }).waitFor()
   }
   const openActive = async () => {
@@ -75,6 +84,7 @@ async function verifyWorkPlan({ screenshots = process.env.DW_WORK_PLAN_SCREENSHO
     assert.ifError(serverError)
     const detail = await page.evaluate(id => window.ds.runsGet(id), runId)
     assert.deepEqual(detail.workPlan, { version: 1, steps: second, blockedOn: '合作方提供最终确认件' })
+    assert.deepEqual(await page.evaluate(id => window.ds.runsGetWorkPlan(id), runId), detail.workPlan)
     const fit = await checklist().evaluate(element => { const rect = element.getBoundingClientRect(); return { x: rect.x, right: rect.right, width: innerWidth, overflow: element.scrollWidth > element.clientWidth } })
     assert(fit.x >= 0 && fit.right <= fit.width && !fit.overflow)
     if (screenshots) await page.screenshot({ path: path.join(screenshots, 'work-plan-detail.png'), animations: 'disabled', scale: 'css' })
@@ -99,8 +109,21 @@ async function verifyWorkPlan({ screenshots = process.env.DW_WORK_PLAN_SCREENSHO
     await expect(page.getByTestId('work-plan-progress')).toHaveCount(0)
     const plainRun = await page.evaluate(async () => (await window.ds.runsListRecent())[0].runId)
     assert.equal((await page.evaluate(id => window.ds.runsGet(id), plainRun)).workPlan, null)
+    await page.getByRole('button', { name: '新建会话', exact: true }).click()
+    await page.getByRole('textbox', { name: '任务内容' }).fill('先列两项，再撤回清单，保留实际完成的工作。')
+    await page.getByRole('button', { name: '发送', exact: true }).click()
+    await expect(page.getByTestId('work-plan-progress')).toContainText('核对全部交付项')
+    await expect.poll(() => typeof releaseClear).toBe('function')
+    releaseClear(); releaseClear = null
+    await expect(page.locator('.msg.assistant').last()).toContainText('工作记录已经保存')
+    await expect(page.getByTestId('work-plan-progress')).toHaveCount(0)
+    const clearedRun = await page.evaluate(async () => (await window.ds.runsListRecent())[0].runId)
+    assert.equal(await page.evaluate(id => window.ds.runsGetWorkPlan(id), clearedRun), null)
+    await page.reload(); await page.getByRole('textbox', { name: '任务内容' }).waitFor()
+    await expect(page.getByTestId('work-plan-progress')).toHaveCount(0)
   } finally {
     if (release) release()
+    if (releaseClear) releaseClear()
     if (app) await app.close().catch(() => {})
     server.closeAllConnections(); await new Promise(resolve => server.close(resolve))
     assert.equal(path.dirname(home), os.tmpdir()); assert(path.basename(home).startsWith('dw-desktop-work-plan-'))

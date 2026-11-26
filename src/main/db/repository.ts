@@ -1201,6 +1201,7 @@ export interface Repository {
   deleteRun(runId: string, storyAction?: StoryLedgerDeleteAction): StoryLedgerRetractionResult
   appendTurn(t: TurnRow): void
   getTurnsByRun(runId: string): TurnRow[]
+  getRunTurnPreviews(runId: string): Array<{ role: TurnRow['role']; content: string }>
   deleteTurnsByRun(runId: string): void
   saveManuscriptSegment(segment: ManuscriptSegmentRow): void
   getManuscriptSegmentsByRun(runId: string): ManuscriptSegmentRow[]
@@ -1349,6 +1350,9 @@ export interface Repository {
   saveRunEvidenceBundle(runId: string, entries: Array<{ kind: string; json: string }>): void
   getRunEvidence(runId: string, kind: string): { run_id: string; kind: string; json: string; created_at: number } | null
   getRunSteeringRows(runId: string): Array<{ kind: string; json: string }>
+  nextSessionMessageSeq(sessionId: string): number
+  getSteeringAdmission(runId: string, turnId: string): { busy: boolean; duplicate: boolean; nextSeq: number }
+  acceptSteeringMessage(sessionId: string, msgId: string, text: string): boolean
   moveActiveAssistantAfterSteering(runId: string, sessionId: string): void
   // ---- R4.6 Grill Me：跨重启采访/大纲工作台 ----
   saveGrillMeState(state: GrillMeState): void
@@ -3207,6 +3211,15 @@ export function createRepository(dbPath: string, testHooks: RepositoryTestHooks 
     },
     getTurnsByRun(runId) {
       return requireDb().prepare('SELECT * FROM turns WHERE run_id = ? ORDER BY turn_seq ASC').all(runId) as unknown as TurnRow[]
+    },
+    getRunTurnPreviews(runId) {
+      // Text substr stops at NUL in SQLite. A bounded byte prefix preserves it;
+      // 800 UTF-8 bytes include the first 200 UTF-16 units even if decoding the
+      // suffix ends in an incomplete character. Keep the original JS slice.
+      const rows = requireDb().prepare('SELECT role,substr(CAST(content AS BLOB),1,800) AS content FROM turns WHERE run_id = ? ORDER BY turn_seq ASC').all(runId) as Array<{ role: TurnRow['role']; content: Uint8Array | null }>
+      // SQLite returns NULL for a zero-byte BLOB substring. The source
+      // content is NOT NULL: this is an empty turn.
+      return rows.map(row => ({ role: row.role, content: row.content === null ? '' : Buffer.from(row.content).toString('utf8').slice(0, 200) }))
     },
     deleteTurnsByRun(runId) {
       requireDb().prepare('DELETE FROM turns WHERE run_id = ?').run(runId)
@@ -5432,6 +5445,21 @@ export function createRepository(dbPath: string, testHooks: RepositoryTestHooks 
     },
     getRunSteeringRows(runId) {
       return requireDb().prepare("SELECT kind, json FROM run_evidence WHERE run_id = ? AND kind GLOB 'work_steering_v1:*'").all(runId) as Array<{ kind: string; json: string }>
+    },
+    nextSessionMessageSeq(sessionId) {
+      return (requireDb().prepare('SELECT MAX(0,COALESCE(MAX(seq),0))+1 AS n FROM session_messages WHERE session_id=?').get(sessionId) as { n: number }).n
+    },
+    getSteeringAdmission(runId, turnId) {
+      // The owning transaction already holds the writer lock. Only inspect the
+      // effect fence and sequence keys, never load tool results or old prose.
+      const row = requireDb().prepare(`SELECT EXISTS(SELECT 1 FROM toolcalls WHERE run_id=? AND status IN ('requested','running','side_effect_unknown')) AS busy,
+        EXISTS(SELECT 1 FROM turns WHERE run_id=? AND turn_id=?) AS duplicate,
+        (SELECT MAX(0,COALESCE(MAX(turn_seq),0))+1 FROM turns WHERE run_id=?) AS nextSeq`).get(runId, runId, turnId, runId) as {busy: number; duplicate: number; nextSeq: number}
+      return { busy: Boolean(row.busy), duplicate: Boolean(row.duplicate), nextSeq: row.nextSeq }
+    },
+    acceptSteeringMessage(sessionId, msgId, text) {
+      return requireDb().prepare("UPDATE session_messages SET status='done' WHERE session_id=? AND msg_id=? AND role='user' AND status='thinking' AND content=?")
+        .run(sessionId, msgId, text).changes === 1
     },
     moveActiveAssistantAfterSteering(runId, sessionId) {
       const d = requireDb()

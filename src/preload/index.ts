@@ -7,6 +7,7 @@ import { contextBridge, ipcRenderer, webUtils } from 'electron'
 import type { ComposerDraftWrite, ComposerDraftWriteResult, PersistedComposerDraft } from '../shared/composerDraft'
 import type { ActivityEvent, RunSnapshot } from '../shared/activity'
 import type { RunBillingView } from '../shared/billing'
+import type { WorkPlanSnapshot, WorkPlanUpdate } from '../shared/workPlan'
 import type { AttachmentRef, ChunkEvent, DsMessage, Settings, StoryConfig, StrongConstraintInput, SessionMeta, SessionMessageSnapshot, PermissionSettings, MemoryInfo, RenpyProjectInfo, RenpyLintResult, NarrativeSemanticReviewDecisionInput, NarrativeSemanticReviewPacket, NarrativeSemanticReviewDecisionResult, NarrativeLedgerScopeInput } from '../shared/types'
 import type { BranchGraph, GeneratePatchResult, ApplyPatchResult, RepairLoopResult } from '../main/galgame'
 import type { FileRefView } from '../main/fileRef'
@@ -276,6 +277,12 @@ const api = {
   // ---- 运行记录与恢复（R4-4） ----
   runsList: (sessionId: string): Promise<unknown[]> => ipcRenderer.invoke('runs:list', { sessionId }),
   runsGet: (runId: string): Promise<unknown> => ipcRenderer.invoke('runs:get', { runId }),
+  runsGetWorkPlan: (runId: string): Promise<WorkPlanSnapshot | null> => ipcRenderer.invoke('runs:getWorkPlan', { runId }),
+  onRunWorkPlanUpdated: (cb: (update: WorkPlanUpdate) => void): (() => void) => {
+    const listener = (_event: unknown, update: WorkPlanUpdate): void => cb(update)
+    ipcRenderer.on('runs:workPlanUpdated', listener)
+    return () => ipcRenderer.removeListener('runs:workPlanUpdated', listener)
+  },
   runsSteer: (input: import('../shared/workSteering').WorkSteeringInput): Promise<import('../shared/workSteering').WorkSteeringMessage> => ipcRenderer.invoke('runs:steer', input),
   runsSteering: (runId: string, sessionId: string): Promise<import('../shared/workSteering').WorkSteeringView> => ipcRenderer.invoke('runs:steering', { runId, sessionId }),
   runsSaveDraft: (runId: string): Promise<import('../shared/manuscriptDraft').ManuscriptDraftSaveResult> => ipcRenderer.invoke('runs:saveDraft', { runId }),

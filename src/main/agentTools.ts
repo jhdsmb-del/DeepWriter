@@ -3,10 +3,11 @@ import { runProcess } from './commandProcess'
 import { readFilePage } from './fileReadPage'
 import { searchFileText } from './fileSearch'
 import { readDocumentPage } from './documentReadPage'
+import { pdfTextAvailable } from './pdfText'
 import { readProjectArchiveResult } from './projectArchive'
 import { sourceFromReadPage } from './fileEvidence'
 import { isUnsupportedTextHead } from './fileTextProbe'
-import { createWorkFileTools } from './workFileTools'
+import { createWorkFileTools, relativeFileGlob } from './workFileTools'
 import { planManuscriptEdit, decodeManuscript, ManuscriptEditMatchError } from './manuscriptEdit'
 import { boundedInteger, readTextBounded, writeTextAtomically } from './agentFiles'
 import type { CommandResult, PermissionDecision } from '../shared/types'
@@ -336,6 +337,8 @@ async function listTree(dir: string, depth: number, signal?: AbortSignal): Promi
   return lines.join('') + (truncated ? '…（目录较大，请指定子目录继续查看）' : '')
 }
 
+const readableDocuments = pdfTextAvailable ? 'DOCX/XLSX/PPTX/PDF/EPUB' : 'DOCX/XLSX/PPTX/EPUB'
+const pdfHint = pdfTextAvailable ? '' : 'PDF请用桌面版。'
 export const agentTools: ToolDef[] = [
   {
     name: 'list_files',
@@ -363,7 +366,7 @@ export const agentTools: ToolDef[] = [
   },
   {
     name: 'read_file',
-    description: '读取文本、DOCX/XLSX/PPTX/PDF/EPUB可提取正文，或指定ZIP的目录/文本条目。ZIP先列目录，再用archive_entry读原路径；不扫描其他压缩包、不执行。文档行号只指提取文本，不是页码；不读图片/OCR。搜索后用cursor读原文，或用start_line/start_column定位。行列从1按Unicode码点计数，范围终点不含；需要后文用返回的cursor。',
+    description: `读取文本、${readableDocuments}的正文或指定ZIP的目录/文本条目。${pdfHint}ZIP先列目录，再用archive_entry读原路径。文档行列指提取文本，不是排版页码，不做OCR。搜索后用cursor读原文，或用start_line/start_column定位。行列从1按Unicode码点计数，终点不含；续读用返回的cursor。`,
     parameters: {
       type: 'object',
       properties: {
@@ -563,13 +566,15 @@ export const agentTools: ToolDef[] = [
   },
   {
     name: 'search_files',
-    description: '搜索目录或一个明确文本文件。找原话（含[]、+等标点）请用 literal:true；默认保留不区分大小写的逐行正则。返回实际命中词附近片段、Unicode行列和可原样交给 read_file 的 cursor；范围说明区分无匹配与尚未查完。',
+    description: `查文本或${readableDocuments}原文。${pdfHint}指定文件直接查；目录默认只搜文本，搜文档时显式documents:true并用path/include限定资料。找原话用literal:true。返回片段和read_file可回读的cursor；文档位置指提取文本，不是页码，不做OCR。`,
     parameters: {
       type: 'object',
       properties: {
         pattern: { type: 'string', description: '搜索词，最多500个UTF-16单位。默认正则逐行只查前4000单位；literal:true按原文区分大小写，可跨行，LF/CRLF也按原样匹配，不解释正则标点' },
         literal: { type: 'boolean', description: 'true：精确原文匹配；省略或false：沿用不区分大小写的正则表达式' },
-        path: { type: 'string', description: '单个文本文件或搜索根目录，默认工作目录；目录默认跳过隐藏项、依赖/构建目录及链接' },
+        path: { type: 'string', description: '明确文本/文档文件或选定的资料根目录，默认工作目录；目录默认跳过隐藏项、依赖/构建目录及链接' },
+        documents: { type: 'boolean', description: '在指定目录内同时搜索支持的文档，默认false。指定单个文档时无需开启。' },
+        include: { type: 'string', description: '可选相对glob限定资料集，与find_files同语义：*一段、?一个Unicode字符、**任意层目录，无斜杠时各层按文件名，不区分大小写；[]/+按原样，不含..，例如 资料/**/*.docx。不改变权限；include本身不启用目录文档提取，仍须documents:true' },
         max_results: { type: 'number', description: '最多返回条数，默认 50' }
       },
       required: ['pattern']
@@ -582,6 +587,11 @@ export const agentTools: ToolDef[] = [
       const patternStr = String(args.pattern ?? '')
       if (patternStr.length > 500) return { ok: false, message: '搜索词过长（超过 500 字符），已拒绝' }
       if (args.literal !== undefined && typeof args.literal !== 'boolean') return { ok: false, message: 'literal 必须为布尔值；查原话使用 true' }
+      if (args.documents !== undefined && typeof args.documents !== 'boolean') return { ok: false, message: 'documents 必须为布尔值；目录文档搜索须显式使用 true' }
+      let include: string | undefined
+      try { if (args.include !== undefined) include = relativeFileGlob(args.include) }
+      catch (error) { return { ok: false, message: `include 无效：${(error as Error).message}` } }
+      if (args.documents === true && !include && !(typeof args.path === 'string' && args.path.trim())) return { ok: false, message: '目录文档搜索请显式提供path或include选定资料集；默认泛搜不会提取全树文档。' }
       if (args.literal && !patternStr) return { ok: false, message: '原文搜索词不能为空' }
       if (args.literal && Array.from(patternStr).some(point => point.length === 1 && /[\uD800-\uDFFF]/.test(point))) return { ok: false, message: '原文搜索词须包含完整Unicode字符，不能只给代理对的一半' }
       try {
@@ -591,6 +601,7 @@ export const agentTools: ToolDef[] = [
       }
       try {
         const result = await searchFileText({ root, base, pattern: patternStr, literal: args.literal === true,
+          documents: args.documents === true, include,
           allowRead: async file => (await readPermission(file, defaultDir, env)).action === 'allow',
           maxResults: boundedInteger(args.max_results, 50, 1, 200), signal: env?.signal, readBudgetChars: env?.readBudgetChars, isTextFile,
           ignored: name => IGNORE_DIRS.has(name) || name.startsWith('.') })

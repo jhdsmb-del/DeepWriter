@@ -30,7 +30,7 @@ function segmentMatches(name: string, pattern: string): boolean {
   while (glob[j] === '*') j++
   return j === glob.length
 }
-function globMatches(relative: string, pattern: string): boolean {
+export function globMatches(relative: string, pattern: string): boolean {
   if (!pattern.includes('/')) return segmentMatches(relative.split('/').at(-1)!, pattern)
   const parts = relative.split('/'), globs = pattern.split('/')
   let previous = new Uint8Array(parts.length + 1); previous[0] = 1
@@ -43,6 +43,13 @@ function globMatches(relative: string, pattern: string): boolean {
     previous = current
   }
   return previous[parts.length] === 1
+}
+
+export function relativeFileGlob(value: unknown): string {
+  if (typeof value !== 'string' || !value || value.length > 1024) throw new Error('glob 必须是1到1024字符的相对glob')
+  const pattern = value.replaceAll('\\', '/')
+  if (pattern.startsWith('/') || pattern.includes(':') || pattern.split('/').some(part => !part || part === '..' || part === '.')) throw new Error('glob必须相对于path，不允许绝对路径或..')
+  return pattern
 }
 
 export function createWorkFileTools(input: { readFile: ReadFile; allowRead: (file: string, defaultDir: string, env?: AgentEnv) => Promise<PermissionDecision> }): ToolDef[] {
@@ -61,8 +68,7 @@ export function createWorkFileTools(input: { readFile: ReadFile; allowRead: (fil
       try {
         env?.signal?.throwIfAborted()
         if (typeof args.pattern !== 'string' || !args.pattern || args.pattern.length > 1024) throw new Error('pattern 必须是1到1024字符的相对glob')
-        const pattern = args.pattern.replaceAll('\\', '/')
-        if (pattern.startsWith('/') || pattern.includes(':') || pattern.split('/').some(part => !part || part === '..' || part === '.')) throw new Error('glob必须相对于path，不允许绝对路径或..')
+        const pattern = relativeFileGlob(args.pattern)
         for (const key of ['case_sensitive', 'include_hidden', 'include_generated']) if (args[key] !== undefined && typeof args[key] !== 'boolean') throw new Error(`${key} 必须是布尔值`)
         if (args.path !== undefined && (typeof args.path !== 'string' || !args.path.trim())) throw new Error('path 必须是非空路径')
         if (args.after_path !== undefined && (typeof args.after_path !== 'string' || !args.after_path || args.after_path.includes('\\') || args.after_path.startsWith('/') || args.after_path.split('/').some(part => part === '..' || !part))) throw new Error('after_path 必须原样使用上页返回的相对路径')

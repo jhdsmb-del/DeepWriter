@@ -1,6 +1,6 @@
 {
   "name": "deepwriter",
-  "version": "8.0.0",
+  "version": "8.1.0",
   "description": "文本写作助手：对话、长文写作、稿件审校与文件处理",
   "main": "out/main/index.js",
   "author": "deepwriter",
@@ -217,6 +217,7 @@
     "release:inventory": "node scripts/distribution-inventory.cjs",
     "release:assemble": "node scripts/assemble-complete-release.cjs",
     "release:installation": "esbuild scripts/windows-installation.ts --bundle --format=esm --platform=node --outfile=out/windows-installation.mjs --external:@playwright/test --external:node:sqlite && node out/windows-installation.mjs",
+    "test:work-mode": "node --test scripts/document-search.test.cjs scripts/work-plan-live.test.cjs",
     "test:v800": "node --test scripts/desktop-updates.test.cjs scripts/manuscript-reader.test.cjs scripts/public-release.test.cjs scripts/cli-update.test.cjs scripts/package-cli-archive.test.cjs scripts/update-rehearsal.test.cjs"
   },
   "build": {

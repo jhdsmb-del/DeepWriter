@@ -76,3 +76,21 @@ test('request identifiers are scoped to the run, not global transcript or turn i
   assert.equal(api.consumeWorkSteering(repo, 'run_shared', 'session')[0].content, '另一份任务')
   assert.equal(repo.getSessionMessages('session').filter(row => row.role === 'user').length, 2)
 }))
+
+test('mid-task corrections do not reload message bodies or tool output, and an empty inbox never scans effect state', () => fixture(async ({ repo, input }) => {
+  const large = '旧资料。'.repeat(200000)
+  repo.appendTurn({ ...repo.getTurnsByRun('run')[0], turn_id: 'old', turn_seq: 40, content: large })
+  repo.appendSessionMessage({ msg_id: 'earlier', session_id: 'session', seq: 80, role: 'assistant', content: large, created_at: 2 })
+  const trap = () => { throw new Error('unexpected bulk history read') }
+  const narrow = { ...repo, getSessionMessages: trap, getTurnsByRun: trap, getToolCallsByRun: trap }
+  assert.deepEqual(api.consumeWorkSteering({ ...narrow, getSteeringAdmission: trap }, 'run', 'session'), [])
+  api.queueWorkSteering(narrow, input('extra', '保留原文，只改小标题。'))
+  const pending = repo.getSessionMessages('session').find(m => m.content === '保留原文，只改小标题。')
+  assert.equal(pending.seq, 81)
+  repo.appendSessionMessage({ ...pending, content: '不一致的内容' })
+  assert.throws(() => api.consumeWorkSteering(narrow, 'run', 'session'), /会话记录不一致/)
+  assert.equal(api.workSteeringView(repo, 'run', 'session').messages[0].status, 'pending')
+  repo.appendSessionMessage(pending)
+  assert.deepEqual(api.consumeWorkSteering(narrow, 'run', 'session').map(t => [t.turn_seq,t.content]), [[41,pending.content]])
+  assert.deepEqual(api.consumeWorkSteering({ ...narrow, getSteeringAdmission: trap }, 'run', 'session'), [])
+}))
