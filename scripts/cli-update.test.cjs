@@ -5,7 +5,7 @@ const fs = require('node:fs')
 const path = require('node:path')
 const os = require('node:os')
 const { createHash } = require('node:crypto')
-const { spawnSync } = require('node:child_process')
+const { spawnSync, execFileSync } = require('node:child_process')
 const { build } = require('esbuild')
 const ROOT = path.resolve(__dirname, '..')
 const API = 'https://api.github.com/repos/jhdsmb-del/DeepWriter/releases/latest'
@@ -138,6 +138,48 @@ test('missing, file and junction destinations reject before the first network re
   assert.deepEqual(fs.readdirSync(outside), [])
 })
 
+test('redirected Documents ancestors are valid and publish to the selected physical directory', async t => {
+  const home = directory(t), physical = path.join(home, 'real-documents'), alias = path.join(home, 'Documents')
+  fs.mkdirSync(path.join(physical, 'downloads'), { recursive: true })
+  fs.symlinkSync(physical, alias, 'junction')
+  const result = await update.downloadCliUpdate(path.join(alias, 'downloads'), VERSION, fixture())
+  assert.equal(result.status, 'downloaded')
+  assert.deepEqual(fs.readFileSync(result.path), BYTES)
+  assert.deepEqual(fs.readdirSync(path.join(physical, 'downloads')), [NAME])
+  assert.equal(fs.statSync(path.join(alias, 'downloads', NAME), { bigint: true }).ino, fs.statSync(result.path, { bigint: true }).ino)
+})
+
+test('Windows TEMP 8.3 and case aliases are accepted by physical identity', { skip: process.platform !== 'win32' }, async t => {
+  const home = directory(t), long = path.join(home, 'Author downloads with a long directory name')
+  fs.mkdirSync(long)
+  const powershell = path.join(process.env.SystemRoot || 'C:\\Windows', 'System32/WindowsPowerShell/v1.0/powershell.exe')
+  const short = execFileSync(powershell, ['-NoProfile', '-NonInteractive', '-Command', '$f = New-Object -ComObject Scripting.FileSystemObject; [Console]::Write($f.GetFolder($env:DW_UPDATE_SHORT_PATH).ShortPath)'], {
+    encoding: 'utf8', windowsHide: true, env: { ...process.env, DW_UPDATE_SHORT_PATH: long }
+  }).trim()
+  assert.equal(fs.statSync(short, { bigint: true }).ino, fs.statSync(long, { bigint: true }).ino)
+  t.diagnostic(`TEMP directory spelling: ${long}; Windows short spelling: ${short}`)
+  const result = await update.downloadCliUpdate(short, VERSION, fixture())
+  assert.equal(result.status, 'downloaded')
+  assert.deepEqual(fs.readFileSync(path.join(long, NAME)), BYTES)
+  fs.unlinkSync(result.path)
+  assert.equal((await update.downloadCliUpdate(short.toUpperCase(), VERSION, fixture())).status, 'downloaded')
+  assert.deepEqual(fs.readdirSync(long), [NAME])
+})
+
+test('retargeting a Documents ancestor during download refuses publication and cleans the original partial', async t => {
+  const home = directory(t), first = path.join(home, 'first'), second = path.join(home, 'second'), alias = path.join(home, 'Documents')
+  for (const root of [first, second]) fs.mkdirSync(path.join(root, 'downloads'), { recursive: true })
+  fs.symlinkSync(first, alias, 'junction')
+  const f = fixture(release(), () => {
+    fs.unlinkSync(alias)
+    fs.symlinkSync(second, alias, 'junction')
+    return new Response(BYTES)
+  })
+  await assert.rejects(update.downloadCliUpdate(path.join(alias, 'downloads'), VERSION, f), /目录已被替换/)
+  assert.deepEqual(fs.readdirSync(path.join(first, 'downloads')), [])
+  assert.deepEqual(fs.readdirSync(path.join(second, 'downloads')), [])
+})
+
 test('real CLI check is credential/config independent, current/no-asset guidance and errors stay scriptable', t => {
   const dir = directory(t)
   fs.mkdirSync(path.join(dir, '.deepwriter-cli'))
@@ -168,6 +210,13 @@ test('real CLI check is credential/config independent, current/no-asset guidance
   assert.equal(download.sha256, sha(BYTES))
   assert.deepEqual(fs.readFileSync(download.path), BYTES)
   assert.match(download.instruction, /不会安装或运行/)
+  const redirected = path.join(dir, 'real-documents'), alias = path.join(dir, 'Documents')
+  fs.mkdirSync(path.join(redirected, 'downloads'), { recursive: true })
+  fs.symlinkSync(redirected, alias, 'junction')
+  const redirectedDownload = call(['update', 'download', path.join(alias, 'downloads'), '--json'])
+  assert.equal(redirectedDownload.status, 0, redirectedDownload.stdout + redirectedDownload.stderr)
+  assert.equal(JSON.parse(redirectedDownload.stdout).data.status, 'downloaded')
+  assert.deepEqual(fs.readdirSync(path.join(redirected, 'downloads')), [NAME])
   const failed = call(['update', 'check', '--json'], release(), 503)
   assert.equal(failed.status, 1)
   assert.equal(JSON.parse(failed.stdout).type, 'error')

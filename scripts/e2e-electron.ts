@@ -893,7 +893,13 @@ async function main(): Promise<void> {
     await page6.locator('.dw-topbar .dw-icon-btn[aria-label="设置"]').click()
     const settingsNav = page6.locator('.dw-settings-nav')
     await settingsNav.waitFor({ state: 'visible' })
-    check('设置含扩展分类且同一时刻只展示一页', (await settingsNav.locator('button').count()) === 8 && (await page6.locator('.dw-settings-page:visible').count()) === 1 && await settingsNav.getByRole('button', { name: '扩展', exact: true }).count() === 1)
+    const expectedSections = ['模型与接口', '完成与预算', '工作区', '权限', '扩展', 'Galgame', '项目约定', '实验', '应用更新']
+    const sectionLabels = (await settingsNav.getByRole('button').allTextContents()).map(label => label.trim())
+    check('设置保留各分类和应用更新，同时只展示一页',
+      sectionLabels.length === expectedSections.length && expectedSections.every(name => sectionLabels.includes(name)) &&
+      (await page6.locator('.dw-settings-page:visible').count()) === 1)
+    await settingsNav.getByRole('button', { name: '应用更新', exact: true }).click()
+    check('应用更新从设置可达且不叠加其他页', await page6.locator('.dw-updates-page').isVisible() && (await page6.locator('.dw-settings-page:visible').count()) === 1)
     await settingsNav.getByRole('button', { name: /完成与预算/ }).click()
     check('Agent 运行限制按需展开，长文预算沿用独立语义', await page6.getByTestId('agent-run-limits').isVisible() && await page6.locator('.dw-writing-settings').getAttribute('open') === null)
     await page6.locator('.dw-writing-settings > summary').click()

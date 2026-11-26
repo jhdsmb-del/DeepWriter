@@ -20,6 +20,7 @@
 
 ```powershell
 .\cli\deepwriter.cmd update check
+New-Item -ItemType Directory -Force .\downloads | Out-Null
 .\cli\deepwriter.cmd update download .\downloads
 ```
 

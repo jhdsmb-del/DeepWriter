@@ -7,29 +7,25 @@ import type { CliOptions } from './config'
 
 type RequestOptions = { signal?: AbortSignal; request?: typeof fetch }
 const MAX_ASSET_SIZE = 512 * 1024 * 1024
-const samePath = (a: string, b: string): boolean => process.platform === 'win32' ? a.toLowerCase() === b.toLowerCase() : a === b
+type DirectoryIdentity = { requestedPath: string; path: string; dev: bigint; ino: bigint }
+const sameDirectory = (a: Pick<DirectoryIdentity, 'dev' | 'ino'>, b: Pick<DirectoryIdentity, 'dev' | 'ino'>): boolean => a.dev === b.dev && a.ino === b.ino
 
-async function realDirectory(directory: string): Promise<{ path: string; dev: number; ino: number }> {
-  const absolute = path.resolve(directory)
-  // Reject junctions as well as symlinks, including ancestors. The directory
-  // chosen by the author, not an alias into an installed CLI, is the boundary.
-  let current = absolute
-  while (true) {
-    const stat = await fs.lstat(current).catch(() => { throw new Error('下载目录不存在或不可访问；请先创建一个新目录') })
-    if (stat.isSymbolicLink() || !stat.isDirectory()) throw new Error('下载目录及其父目录必须是真实目录，不能使用链接或文件')
-    const parent = path.dirname(current)
-    if (parent === current) break
-    current = parent
-  }
-  const real = await fs.realpath(absolute)
-  if (!samePath(real, absolute)) throw new Error('下载目录的实际位置不一致；请选择真实目录')
-  const stat = await fs.stat(real)
-  return { path: real, dev: stat.dev, ino: stat.ino }
+async function realDirectory(directory: string): Promise<DirectoryIdentity> {
+  const requestedPath = path.resolve(directory)
+  const stat = await fs.lstat(requestedPath, { bigint: true }).catch(() => { throw new Error('下载目录不存在或不可访问；请先创建一个新目录') })
+  // A redirected Documents/TEMP ancestor is normal on Windows. Resolve it
+  // once, then pin physical identity rather than spelling (8.3 and case aliases
+  // are equally valid). The selected leaf itself must still be a real folder.
+  if (stat.isSymbolicLink() || !stat.isDirectory()) throw new Error('下载目录必须是真实目录，不能使用链接或文件')
+  const real = await fs.realpath(requestedPath)
+  const physical = await fs.lstat(real, { bigint: true })
+  if (physical.isSymbolicLink() || !physical.isDirectory() || !sameDirectory(stat, physical)) throw new Error('下载目录已被替换；未发布下载文件')
+  return { requestedPath, path: real, dev: stat.dev, ino: stat.ino }
 }
 
-async function assertDirectory(original: Awaited<ReturnType<typeof realDirectory>>): Promise<void> {
-  const current = await realDirectory(original.path)
-  if (current.dev !== original.dev || current.ino !== original.ino) throw new Error('下载目录已被替换；未发布下载文件')
+async function assertDirectory(original: DirectoryIdentity): Promise<void> {
+  const [requested, physical] = await Promise.all([realDirectory(original.requestedPath), realDirectory(original.path)])
+  if (!sameDirectory(requested, original) || !sameDirectory(physical, original)) throw new Error('下载目录已被替换；未发布下载文件')
 }
 
 export async function checkCliUpdate(currentVersion: string, options: RequestOptions = {}) {
@@ -55,6 +51,7 @@ export async function downloadCliUpdate(directory: string, currentVersion: strin
   const partial = path.join(temporary, 'asset.partial')
   let response: Response | undefined
   try {
+    await assertDirectory(destination)
     response = await (options.request ?? fetch)(asset.url, {
       signal: options.signal, redirect: 'follow', headers: { Accept: 'application/octet-stream', 'User-Agent': `DeepWriter-CLI/${currentVersion}` }
     })
@@ -91,7 +88,8 @@ export async function downloadCliUpdate(directory: string, currentVersion: strin
   } finally {
     // Cancel an unread/error body; never leave a partially downloaded archive.
     if (response?.body && !response.body.locked) await response.body.cancel().catch(() => undefined)
-    await assertDirectory(destination)
+    // Cleanup stays on the reserved physical path even if a user-facing
+    // ancestor junction was retargeted while the download was in flight.
     await assertDirectory(temporaryIdentity)
     await fs.unlink(partial).catch(error => { if (error.code !== 'ENOENT') throw error })
     await fs.rmdir(temporary)
