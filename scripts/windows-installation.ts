@@ -21,7 +21,6 @@ async function main(): Promise<void> {
   const temporary = fs.mkdtempSync(path.join(process.env.RUNNER_TEMP!, 'dw-install-'))
   const installDir = path.join(temporary, 'application')
   const executable = path.join(installDir, 'DeepWriter.exe')
-  const baselineVersion = process.env.DW_UPGRADE_BASELINE_VERSION || '1.2.6'
   const previous = path.resolve(process.env.DW_UPGRADE_INSTALLER || '')
   const candidate = path.join(root, 'dist', `DeepWriter-${version}-x64-setup.exe`)
   assert.ok(previous.toLowerCase().startsWith(path.resolve(process.env.RUNNER_TEMP!).toLowerCase() + path.sep), 'Upgrade baseline must be inside the ephemeral runner directory')
@@ -83,7 +82,7 @@ async function main(): Promise<void> {
   let sessionId = ''
   try {
     install(previous)
-    const old = await launch(baselineVersion)
+    const old = await launch('1.2.6')
     try {
       await old.page.evaluate(async ({ port, instruction }) => {
         const ds = (window as any).ds
@@ -119,7 +118,7 @@ async function main(): Promise<void> {
     await uninstall()
     const preserved = new DatabaseSync(path.join(profile, 'deepwriter.db'), { readOnly: true })
     try { assert.equal((preserved.prepare('SELECT COUNT(*) AS count FROM session_messages').get() as { count: number }).count, 4) } finally { preserved.close() }
-    console.log(`PASS actual v${baselineVersion} upgrade: history, settings and encrypted credentials; uninstall preserves the real default profile`)
+    console.log('PASS actual v1.2.6 upgrade: history, settings and encrypted credentials; uninstall preserves the real default profile')
 
     // Move only our fixture profile, on its own volume. Windows runners can
     // put APPDATA on C: and RUNNER_TEMP on D:, where rename would reject EXDEV.
@@ -139,7 +138,7 @@ async function main(): Promise<void> {
     const cleanDb = new DatabaseSync(path.join(profile, 'deepwriter.db'), { readOnly: true })
     try { assert.equal((cleanDb.prepare("SELECT text FROM composer_drafts WHERE text <> ''").get() as { text: string }).text, '全新安装后的未发送草稿。') } finally { cleanDb.close() }
     console.log('PASS actual clean installation: default profile, packaged UI and durable draft preserved after uninstall')
-    fs.writeFileSync(path.join(root, 'dist', 'installation-verification.json'), JSON.stringify({ version, sourceCommit: process.env.GITHUB_SHA, upgradedFrom: baselineVersion, installerSha256: await hash(candidate), baselineSha256: await hash(previous), cleanInstall: true, upgradeHistory: true, upgradeCredentials: true, uninstallPreservesData: true, verifiedAt: new Date().toISOString() }, null, 2) + '\n')
+    fs.writeFileSync(path.join(root, 'dist', 'installation-verification.json'), JSON.stringify({ version, sourceCommit: process.env.GITHUB_SHA, upgradedFrom: '1.2.6', installerSha256: await hash(candidate), baselineSha256: await hash(previous), cleanInstall: true, upgradeHistory: true, upgradeCredentials: true, uninstallPreservesData: true, verifiedAt: new Date().toISOString() }, null, 2) + '\n')
   } finally {
     await new Promise<void>((resolve) => { server.closeAllConnections(); server.close(() => resolve()) })
   }

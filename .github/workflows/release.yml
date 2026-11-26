@@ -1,9 +1,9 @@
 name: Windows Release
 
 on:
-  push:
-    tags: ['v[0-9]*', '!v*-*', '!v5.0.1'] # First public release mirrors the existing 5.0.1 binaries.
-    branches: ['release/v[0-9]*', 'publish-retry/v[0-9]*']
+  # Published binaries are mirrored here. Keep the upstream release job reusable
+  # without launching a second Windows distribution on a mirror tag.
+  workflow_call:
 
 permissions:
   contents: read
@@ -163,13 +163,12 @@ jobs:
           GH_REPO: ${{ github.repository }}
         run: |
           $baseline = Join-Path $env:RUNNER_TEMP 'upgrade-baseline'
-          gh release download v5.0.1 --pattern 'DeepWriter-5.0.1-x64-setup.exe' --pattern 'SHA256SUMS.txt' --dir $baseline
+          gh release download v1.2.6 --pattern 'DeepWriter-1.2.6-x64-setup.exe' --pattern 'SHA256SUMS.txt' --dir $baseline
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          $installer = Join-Path $baseline 'DeepWriter-5.0.1-x64-setup.exe'
-          $expected = (Get-Content (Join-Path $baseline 'SHA256SUMS.txt') | Where-Object { $_ -match '  DeepWriter-5.0.1-x64-setup.exe$' }) -split '  '
+          $installer = Join-Path $baseline 'DeepWriter-1.2.6-x64-setup.exe'
+          $expected = (Get-Content (Join-Path $baseline 'SHA256SUMS.txt') | Where-Object { $_ -match '  DeepWriter-1.2.6-x64-setup.exe$' }) -split '  '
           if ($expected.Length -ne 2 -or (Get-FileHash $installer -Algorithm SHA256).Hash.ToLowerInvariant() -cne $expected[0]) { throw 'Upgrade baseline checksum differs' }
           "DW_UPGRADE_INSTALLER=$installer" | Add-Content $env:GITHUB_ENV
-          "DW_UPGRADE_BASELINE_VERSION=5.0.1" | Add-Content $env:GITHUB_ENV
       - name: Actual clean install, upgrade and uninstall
         id: installation
         if: always() && steps.baseline.outcome == 'success' && steps.package.outcome == 'success' && steps.asar.outcome == 'success'
