@@ -8,7 +8,7 @@ const ROOT = path.resolve(__dirname, '..')
 const SOURCE = 'build/package-notices'
 const STAGED = 'out/main/package-notices'
 const ARCHIVED = 'licenses/packages'
-const CATALOG_SHA256 = 'a57a8f3495a484639440942a7450f7859286d481fe6944ac4db60d2ec6c6d7a8'
+const CATALOG_SHA256 = 'ff9aa7fbe594807f146efa965d1a3d278623f7046d595bc986a2c639576c72c1'
 function exact(bytes, expected) {
   if (bytes.length !== expected.size || sha(bytes) !== expected.sha256) throw new Error('Package notice resource differs from fixed publisher bytes')
 }

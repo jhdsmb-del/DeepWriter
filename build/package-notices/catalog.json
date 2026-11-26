@@ -317,6 +317,44 @@
       },
       "scope": "npm-package-level",
       "legalCompliance": "not-assessed"
+    },
+    {
+      "name": "lazy-val",
+      "version": "1.0.5",
+      "packageLocation": "node_modules/lazy-val",
+      "resolved": "https://registry.npmjs.org/lazy-val/-/lazy-val-1.0.5.tgz",
+      "integrity": "sha512-0/BnGCCfyUMkBpeDgWihanIAF9JmZhHBgUhEqzvf+adhNGLoP6TaiI5oF8oyb3I45P+PcnrqihSf01M0l0G5+Q==",
+      "publishedTarball": {
+        "sourceUrl": "https://registry.npmjs.org/lazy-val/-/lazy-val-1.0.5.tgz",
+        "size": 1182,
+        "sha256": "7d8602ad98db3d19fbd5b46fbf3831dd996197a013ef1ff7badc205e41435372",
+        "integrity": "sha512-0/BnGCCfyUMkBpeDgWihanIAF9JmZhHBgUhEqzvf+adhNGLoP6TaiI5oF8oyb3I45P+PcnrqihSf01M0l0G5+Q=="
+      },
+      "packageManifestSource": {
+        "name": "package.json",
+        "size": 491,
+        "sha256": "a5096f95098452cf6fe5c8ac9be8f13f59ab7c9f605ba5ef92c91b2c505744f0"
+      },
+      "packagedManifest": {
+        "size": 330,
+        "sha256": "a6f4140d0187f32d95545835aca38684e18d0fcfbecb51709b0aaa54decd3c0b"
+      },
+      "sourceCommit": "b69ad4119f1b19bdab13c61ee2fcc88d46b89071",
+      "declaredLicense": "MIT",
+      "reviewedSourceLicense": null,
+      "notice": {
+        "name": "lazy-val-1.0.5.txt",
+        "size": 491,
+        "sha256": "a5096f95098452cf6fe5c8ac9be8f13f59ab7c9f605ba5ef92c91b2c505744f0",
+        "sourceUrl": "https://registry.npmjs.org/lazy-val/-/lazy-val-1.0.5.tgz",
+        "sourceCommit": "b69ad4119f1b19bdab13c61ee2fcc88d46b89071",
+        "sourceMember": "package.json",
+        "noticeKind": "publisher-license-declaration",
+        "completeLicenseText": false,
+        "copyrightCoverage": "unknown"
+      },
+      "scope": "npm-package-level",
+      "legalCompliance": "not-assessed"
     }
   ],
   "limitations": [

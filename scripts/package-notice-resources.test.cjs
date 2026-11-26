@@ -29,7 +29,8 @@ async function fixture(t, name = 'png-js', stage = true) {
     [location]: name === 'buffers' ? { version: '0.1.1', resolved: 'https://registry.npmjs.org/buffers/-/buffers-0.1.1.tgz', integrity: `sha512-${Buffer.alloc(64, 7).toString('base64')}` } : sourceLock.packages[location], 'node_modules/app-builder-lib': sourceLock.packages['node_modules/app-builder-lib'] } }
   write(root, 'package.json', identity)
   write(root, 'package-lock.json', lock)
-  write(root, 'LICENSE', 'Synthetic project notice.\n')
+  const projectNotice = name === 'lazy-val' ? fs.readFileSync(path.join(REPO, 'LICENSE')) : Buffer.from('Synthetic project notice.\n')
+  write(root, 'LICENSE', projectNotice)
   write(root, location + '/package.json', source)
   for (const relative of ['node_modules/app-builder-lib/package.json', TRANSFORMER_PIN.implementation]) write(root, relative, fs.readFileSync(path.join(REPO, relative)))
   const dependencyLocations = name === 'png-js' ? ['node_modules/browserify-zlib', 'node_modules/pako'] : []
@@ -40,7 +41,7 @@ async function fixture(t, name = 'png-js', stage = true) {
   write(root, 'package-lock.json', lock)
   write(root, 'out/main/index.js', '// Inert offline fixture, never executed.\n')
   if (stage) stagePackageNotices(root)
-  const packed = new Map([['package.json', Buffer.from(JSON.stringify(identity))], ['LICENSE', Buffer.from('Synthetic project notice.\n')],
+  const packed = new Map([['package.json', Buffer.from(JSON.stringify(identity))], ['LICENSE', projectNotice],
     [location + '/package.json', transformDependencyManifest(source)]])
   if (stage && fs.existsSync(path.join(root, STAGED))) for (const filename of fs.readdirSync(path.join(root, STAGED))) packed.set(STAGED + '/' + filename, fs.readFileSync(path.join(root, STAGED, filename)))
   for (const dependency of dependencyLocations) {
@@ -63,13 +64,13 @@ async function fixture(t, name = 'png-js', stage = true) {
 test('fixed original resources disclose declarations vs complete text without manufacturing copyright', () => {
   const { catalog, assets } = sourceAssets()
   assert.equal(assets[0].sha256, CATALOG_SHA256)
-  assert.equal(catalog.packages.length, 8)
+  assert.equal(catalog.packages.length, 9)
   assert.equal(catalog.legalCompliance, 'not-assessed')
   for (const entry of catalog.packages) {
     assert.match(entry.integrity, /^sha512-/)
     assert.match(entry.sourceCommit, /^[a-f0-9]{40}$/)
     assert.ok(entry.publishedTarball.sourceUrl.endsWith(entry.name + '-' + entry.version + '.tgz'))
-    if (['brotli', 'dfa', 'dingbat-to-unicode', 'fontkit'].includes(entry.name)) {
+    if (['brotli', 'dfa', 'dingbat-to-unicode', 'fontkit', 'lazy-val'].includes(entry.name)) {
       assert.equal(entry.notice.noticeKind, 'publisher-license-declaration')
       assert.equal(entry.notice.completeLicenseText, false)
       assert.equal(entry.notice.copyrightCoverage, 'unknown')
@@ -108,6 +109,37 @@ test('publisher declaration is preserved as the exact whole resource and never r
   assert.equal(supplement.resources[1].noticeKind, 'publisher-license-declaration')
   assert.equal(supplement.resources[1].completeLicenseText, false)
   assert.equal(supplement.resources[1].copyrightCoverage, 'unknown')
+})
+
+test('lazy-val updater dependency carries exact published MIT declaration and existing MIT terms, never invented copyright', async t => {
+  const f = await fixture(t, 'lazy-val')
+  assert.deepEqual(f.binding().reviewNeeded, [])
+  const { report, notices } = collectInventory(f)
+  assert.equal(report.inventoryComplete, true, JSON.stringify(report.reviewNeeded))
+  const row = report.actual.packages.find(row => row.name === 'lazy-val')
+  assert.equal(row.license, 'MIT'); assert.deepEqual(row.notices, [])
+  assert.equal(row.publisherNoticeSupplement.reviewedSourceLicense, null)
+  const resource = row.publisherNoticeSupplement.resources[1]
+  assert.equal(resource.noticeKind, 'publisher-license-declaration')
+  assert.equal(resource.completeLicenseText, false); assert.equal(resource.copyrightCoverage, 'unknown')
+  const declaration = sourceAssets().assets.find(asset => asset.name === 'lazy-val-1.0.5.txt').bytes
+  assert.deepEqual(declaration, fs.readFileSync(path.join(REPO, 'node_modules/lazy-val/package.json')))
+  assert.equal(JSON.parse(declaration).author, 'Vladimir Krivosheev')
+  assert.equal(JSON.parse(declaration).license, 'MIT'); assert.ok(!declaration.toString().includes('Copyright'))
+  assert.ok(notices.includes(declaration.toString()))
+  // Full MIT terms already ship as the project's correctly attributed LICENSE;
+  // they are not relabelled as a missing publisher copyright notice.
+  const existingMit = fs.readFileSync(path.join(REPO, 'LICENSE'), 'utf8')
+  assert.ok(notices.includes(existingMit)); assert.ok(existingMit.includes('Permission is hereby granted'))
+  assert.ok(existingMit.includes('THE SOFTWARE IS PROVIDED "AS IS"'))
+  assert.equal(report.legalCompliance, 'not-assessed')
+  const archived = packedArchiveAssets(f.asarPath, f.lock, report, f.root)
+  assert.deepEqual(archived.map(asset => asset.name).sort(), ['licenses/packages/catalog.json', 'licenses/packages/lazy-val-1.0.5.txt'])
+  const bindings = f.binding().bindings.filter(row => row.name === 'lazy-val')
+  const wrongVersion = structuredClone(bindings); wrongVersion[0].version = '1.0.6'
+  assert.throws(() => packedSupplements(f.readPacked, wrongVersion), /binding differs/)
+  f.packed.set(STAGED + '/lazy-val-1.0.5.txt', Buffer.from('MIT License\nCopyright (c) invented'))
+  assert.throws(() => packedSupplements(f.readPacked, bindings), /fixed publisher bytes/)
 })
 test('unknown buffers is not covered by any unrelated MIT resource', async t => {
   const f = await fixture(t, 'buffers')

@@ -18,7 +18,7 @@
 .dw-manuscript-contents button { display: grid; gap: 5px; width: 100%; border: 0; border-left: 2px solid transparent; border-radius: 3px; padding: 11px 14px; color: var(--dw-secondary); background: transparent; text-align: left; line-height: 1.5; overflow-wrap: anywhere; }
 .dw-manuscript-contents button:hover { background: var(--dw-hover); }
 .dw-manuscript-contents button[aria-current] { border-left-color: var(--dw-accent); color: var(--dw-text); background: var(--dw-accent-soft); }
-.dw-manuscript-contents small { font-size: 12px; color: var(--dw-muted); }
+.dw-manuscript-contents small { font-size: 13px; color: var(--dw-muted); }
 .dw-manuscript-reading { display: flex; flex-direction: column; min-width: 0; min-height: 0; }
 .dw-manuscript-reading article { overflow-y: auto; flex: 1; min-height: 0; padding: 28px clamp(24px, 4vw, 54px) 40px; background: var(--dw-bg); }
 .dw-manuscript-reading h2 { margin: 0 0 24px; color: var(--dw-text); font-size: 22px; font-weight: 580; line-height: 1.6; overflow-wrap: anywhere; }

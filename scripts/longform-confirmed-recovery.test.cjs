@@ -42,8 +42,10 @@ before(async () => {
           return { path: resolved, namespace: 'test-source' }
         })
         build.onLoad({ filter: /.*/, namespace: 'test-source' }, (args) => ({
-          contents: readFileSync(args.path, 'utf8'),
-          loader: args.path.endsWith('.tsx') ? 'tsx' : 'ts',
+          // CSS is a browser side effect, not TypeScript. Keep the actual
+          // component graph; visual styles are exercised by desktop tests.
+          contents: args.path.endsWith('.css') ? '' : readFileSync(args.path, 'utf8'),
+          loader: args.path.endsWith('.css') ? 'empty' : args.path.endsWith('.tsx') ? 'tsx' : 'ts',
           resolveDir: path.dirname(args.path)
         }))
       }

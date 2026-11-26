@@ -106,7 +106,7 @@ async function main(): Promise<void> {
       assert.deepEqual(snapshot.messages.map((message: any) => message.content), [prompt, reply])
       assert.equal(snapshot.settings.apiKey, '__CONFIGURED__')
       assert.equal(snapshot.settings.userPresetPrompt, instruction)
-      assert.equal(path.resolve(snapshot.settings.workDir).toLowerCase(), temporary.toLowerCase())
+      assert.equal(fs.realpathSync.native(snapshot.settings.workDir).toLowerCase(), fs.realpathSync.native(temporary).toLowerCase())
       // A second actual request proves DPAPI decryption and migrated configuration.
       await upgraded.page.getByRole('textbox', { name: '任务内容' }).fill('升级后再次调用模型。')
       await upgraded.page.getByRole('button', { name: '发送', exact: true }).click()
