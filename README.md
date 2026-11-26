@@ -1,18 +1,30 @@
 <div align="center">
 
-![DeepWriter 5.0.1：从资料到成稿，把写作接起来。Windows 桌面与 CLI 写作助手](docs/images/landing-hero.png)
+![DeepWriter 6.0.0：从资料到成稿，把写作接起来。Windows 桌面与 CLI 写作助手](docs/images/landing-hero.png)
 
 **用 Agent 查资料、处理文件，用长文工作区把想法写成作品。**
 
-### [下载完整包（桌面 + CLI）](https://github.com/jhdsmb-del/DeepWriter/releases/download/v5.0.1/DeepWriter-5.0.1-complete.zip)
+### [下载完整包（桌面 + CLI）](https://github.com/jhdsmb-del/DeepWriter/releases/download/v6.0.0/DeepWriter-6.0.0-complete.zip)
 
-[免安装版](https://github.com/jhdsmb-del/DeepWriter/releases/download/v5.0.1/DeepWriter-5.0.1-x64-portable.exe) · [安装版](https://github.com/jhdsmb-del/DeepWriter/releases/download/v5.0.1/DeepWriter-5.0.1-x64-setup.exe) · [全部版本](https://github.com/jhdsmb-del/DeepWriter/releases)
+[免安装版](https://github.com/jhdsmb-del/DeepWriter/releases/download/v6.0.0/DeepWriter-6.0.0-x64-portable.exe) · [安装版](https://github.com/jhdsmb-del/DeepWriter/releases/download/v6.0.0/DeepWriter-6.0.0-x64-setup.exe) · [全部版本](https://github.com/jhdsmb-del/DeepWriter/releases)
 
-[桌面入门](#桌面三步开始) · [CLI 入门](#cli把写作带进终端) · [5.0.1 更新](docs/RELEASE_NOTES_5.0.1.md) · [反馈问题](https://github.com/jhdsmb-del/DeepWriter/issues)
+[桌面入门](#桌面三步开始) · [CLI 入门](#cli把写作带进终端) · [6.0.0 更新](docs/RELEASE_NOTES_6.0.0.md) · [反馈问题](https://github.com/jhdsmb-del/DeepWriter/issues)
 
 </div>
 
 ![DeepWriter 写作工作室：首页提供起草文字、查资料和处理文件入口](docs/images/studio-v3.png)
+
+## 从一个分支故事开始
+
+在完整包里打开 **Galgame 制作 → 导入项目**，选 `examples/last-ferry`。这是一个有两个结局的小故事：最后一班渡船离岸前，你会替检票员敲铃，还是把那张旧票送过河？
+
+![《末班渡船》的两个选项：敲铃应他，或把票送过河](docs/images/last-ferry-play-v6.png)
+
+- **读路线**：点「剧情与分支」，沿着玩家看到的选项逐个节点读；也可以在终端运行 `.\cli\deepwriter.cmd galgame routes .\examples\last-ferry`。
+- **试玩**：为导入的项目选择本机 Ren’Py SDK，点「试玩原项目」，就能打开游戏窗口。
+- **写自己的故事**：新建项目，放入人物、立绘和背景，回答剧情问题，确认大纲后生成剧本。检查通过，直接点「开始试玩」。
+
+![Galgame 工作室里显示的玩家选项和跳转目标，点击选项可以沿路线往下看](docs/images/galgame-branches-v6.png)
 
 ## 你来定方向，DeepWriter 接着做
 
@@ -117,14 +129,13 @@ $env:DEEPWRITER_API_KEY = [System.Net.NetworkCredential]::new('', $dwKey).Passwo
 
 [CLI 完整指南：自定义服务、持续会话、审改与脚本用法](docs/CLI.md)
 
-## 5.0.1，让日常写作更顺手
+## 6.0.0 更新
 
-- **写完就能打开**：从回复中的文件名直接打开稿件，或定位到它所在的文件夹。
-- **日常文档操作更连贯**：选择工作区后，自动模式支持直接读取、新建文档和可撤销的局部编辑。
-- **长回复更流畅**：改进长正文与推理文字的增量处理，也优化长会话的请求准备。
-- **常用界面更轻快**：模型菜单、设置面板和文件回执的读取更高效。
+- **长回复更顺手。** 新推理、工具进度和文件回执到达时，已经显示的正文不会一遍遍重新排版。阅读位置、复制按钮和文件链接都留在原处。
+- **剧本改动更好掌握。** 工作室先准备候选内容。导入已有项目时保留原来的开场，并给出新剧情文件与入口，由你决定在哪里接入。
+- **桌面与终端读同一张图。** 工作室里点选路线，终端里查看节点、选择与行号；加 `--json` 可把路线交给自己的脚本。
 
-[查看本版更新](docs/RELEASE_NOTES_5.0.1.md) · [全部变更](CHANGELOG.md)
+[完整更新说明](docs/RELEASE_NOTES_6.0.0.md) · [全部变更](CHANGELOG.md)
 
 ## 文档与参与
 

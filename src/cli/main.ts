@@ -39,12 +39,18 @@ async function main(): Promise<void> {
   const command = interactiveAgent ? 'interactive' : args[0] ?? 'interactive'
   if (interactiveAgent) { options.tools = true; options['agent-session'] = true }
   const commands = ['interactive', 'brief', 'config', 'chat', 'agent', 'plan', 'plan-info', 'approve', 'reject-plan', 'write', 'interview', 'answer', 'assumptions', 'outline', 'confirm', 'start', 'resume', 'pause', 'cancel', 'list', 'status', 'usage', 'sources', 'changes', 'undo-edit', 'recover-info', 'recover', 'review', 'skills', 'plugins', 'export']
-  commands.push('steer', 'steering')
+  commands.push('steer', 'steering', 'galgame')
   if (!commands.includes(command)) throw new Error(`未知命令：${command}；运行 --help 查看入口`)
   if (options.draft && command !== 'export') throw new Error('--draft 只用于 export RUN，取回已接纳正文而不宣告任务完成')
   if (options.input && !(command === 'brief' && args[1] === 'init') && !['chat', 'agent', 'plan', 'write', 'interview', 'answer'].includes(command)) throw new Error('--input 只用于 brief init / chat / agent / plan / write / interview / answer')
   if (options.output && !['chat', 'agent', 'plan', 'approve', 'confirm', 'start', 'resume', 'export'].includes(command)) throw new Error('--output 只用于 chat / agent / plan / approve / confirm / start / resume / export；长文完成后也可 export RUN')
   if (command === 'answer' && options.decision && options.decision !== 'answer' && (options.input || options.text)) throw new Error('decide / not_applicable 不接受 --text 或 --input；请明确选择答案或决策')
+  if (command === 'galgame') {
+    if (args.length !== 3 || args[1] !== 'routes') throw new Error('用法：deepwriter galgame routes <项目目录> [--json]')
+    const { printGalgameRoutes } = await import('./galgameRoutes')
+    process.exitCode = await printGalgameRoutes(args[2], Boolean(options.json))
+    return
+  }
   const output = options.output ? await prepareOutput(String(options.output)) : command === 'export' ? '-' : undefined
   const prompt = ['chat', 'agent', 'plan', 'write', 'interview'].includes(command)
     ? await readPrompt(args.slice(1).join(' '), typeof options.input === 'string' ? options.input : undefined)

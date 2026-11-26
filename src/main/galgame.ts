@@ -1,3 +1,5 @@
+import { collectScriptFiles, buildBranchGraph, type BranchGraph, type BranchDiagnostic } from './renpyRoutes'
+export { buildBranchGraph, type BranchGraph, type BranchDiagnostic, type BranchLabel, type BranchEdge } from './renpyRoutes'
 import { promises as fs } from 'fs'
 import * as path from 'path'
 import { createHash } from 'crypto'
@@ -19,20 +21,6 @@ const EMPTY: RenpyProjectInfo = {
   gameName: null
 }
 
-async function listRpy(dir: string, out: string[]): Promise<void> {
-  let entries
-  try {
-    entries = await fs.readdir(dir, { withFileTypes: true })
-  } catch {
-    return
-  }
-  for (const e of entries) {
-    const full = path.join(dir, e.name)
-    if (e.isDirectory()) await listRpy(full, out)
-    else if (e.name.toLowerCase().endsWith('.rpy')) out.push(full)
-  }
-}
-
 async function readAllText(files: string[]): Promise<string> {
   let all = ''
   for (const f of files) {
@@ -45,24 +33,6 @@ async function readAllText(files: string[]): Promise<string> {
     }
   }
   return all
-}
-
-async function collectScriptFiles(projectDir: string): Promise<string[]> {
-  let ownFiles: string[] = []
-  try {
-    const entries = await fs.readdir(projectDir)
-    ownFiles = entries.filter((n) => n.toLowerCase().endsWith('.rpy'))
-  } catch {
-    return []
-  }
-  const scriptDir = ownFiles.length > 0 ? projectDir : path.join(projectDir, 'game')
-  const scriptFiles: string[] = []
-  if (ownFiles.length > 0) {
-    for (const n of ownFiles) scriptFiles.push(path.join(projectDir, n))
-  } else {
-    await listRpy(scriptDir, scriptFiles)
-  }
-  return scriptFiles.filter((f) => !f.split(/[\\/]/).includes('save'))
 }
 
 export async function scanRenpyProject(projectDir: string): Promise<RenpyProjectInfo> {
@@ -112,245 +82,7 @@ export async function lintRenpyProject(sdkPath: string, projectDir: string): Pro
   }
 }
 
-export interface BranchLabel {
-  name: string
-  file: string
-  line: number
-  incoming: string[]
-  outgoing: string[]
-}
 
-export interface BranchEdge {
-  from: string
-  to: string
-  type: 'jump' | 'call' | 'menu' | 'return'
-  file: string
-  line: number
-}
-
-export interface BranchDiagnostic {
-  severity: 'error' | 'warning'
-  code: string
-  message: string
-  file: string | null
-  line: number | null
-}
-
-export interface BranchGraph {
-  labels: BranchLabel[]
-  edges: BranchEdge[]
-  diagnostics: BranchDiagnostic[]
-}
-
-interface MenuOption {
-  indent: number
-  line: number
-  text: string
-  hasBody: boolean
-  hasBranch: boolean
-}
-
-interface MenuBlock {
-  indent: number
-  line: number
-  options: MenuOption[]
-}
-
-const LABEL_RE = /^\s*label\s+([a-zA-Z_]\w*)/
-const JUMP_RE = /^\s*jump\s+([a-zA-Z_]\w*)/
-const CALL_RE = /^\s*call\s+([a-zA-Z_]\w*)/
-const RETURN_RE = /^\s*return\b/
-const MENU_RE = /^\s*menu\s*:\s*$/
-const OPTION_RE = /^\s*"([^"]*)"\s*(?::\s*$|$)/
-
-export async function buildBranchGraph(projectDir: string): Promise<BranchGraph> {
-  const files = await collectScriptFiles(projectDir)
-  const nodes = new Map<string, { name: string; file: string; line: number }>()
-  const edges: BranchEdge[] = []
-  const diags: BranchDiagnostic[] = []
-  const labelHasReturn = new Set<string>()
-  const seenDiag = new Set<string>()
-
-  const addDiag = (d: BranchDiagnostic): void => {
-    const key = `${d.code}|${d.message}|${d.file}|${d.line}`
-    if (seenDiag.has(key)) return
-    seenDiag.add(key)
-    diags.push(d)
-  }
-
-  const closeMenu = (m: MenuBlock, file: string): void => {
-    if (m.options.length === 0) {
-      addDiag({ severity: 'warning', code: 'menu-empty', message: 'menu: 块没有任何选项分支', file, line: m.line })
-      return
-    }
-    for (const opt of m.options) {
-      if (!opt.hasBranch) {
-        addDiag({
-          severity: 'warning',
-          code: 'menu-option-empty',
-          message: `菜单选项"${opt.text}"没有跳转/调用分支`,
-          file,
-          line: opt.line
-        })
-      }
-    }
-  }
-
-  for (const file of files) {
-    let raw: string
-    try {
-      raw = await fs.readFile(file, 'utf-8')
-    } catch {
-      continue
-    }
-    const lines = raw.split(/\r?\n/)
-    let currentLabel: string | null = null
-    let menuStack: MenuBlock[] = []
-    let curOption: MenuOption | null = null
-
-    const closeMenusDownTo = (indent: number): void => {
-      while (menuStack.length > 0 && menuStack[menuStack.length - 1].indent >= indent) {
-        const m = menuStack.pop()
-        if (m) closeMenu(m, file)
-      }
-      if (menuStack.length === 0) {
-        curOption = null
-        return
-      }
-      const top = menuStack[menuStack.length - 1]
-      const last = top.options[top.options.length - 1]
-      curOption = last && indent > last.indent ? last : null
-    }
-
-    for (let i = 0; i < lines.length; i++) {
-      const text = lines[i]
-      const indent = /^\s*/.exec(text)?.[0].length ?? 0
-      const trimmed = text.trim()
-      if (trimmed === '' || trimmed.startsWith('#')) continue
-
-      closeMenusDownTo(indent)
-
-      const lm = LABEL_RE.exec(trimmed)
-      if (lm) {
-        currentLabel = lm[1]
-        if (!nodes.has(currentLabel)) nodes.set(currentLabel, { name: currentLabel, file, line: i + 1 })
-        continue
-      }
-
-      const mm = MENU_RE.exec(trimmed)
-      if (mm) {
-        menuStack.push({ indent, line: i + 1, options: [] })
-        curOption = null
-        continue
-      }
-
-      const om = OPTION_RE.exec(trimmed)
-      if (menuStack.length > 0 && indent === menuStack[menuStack.length - 1].indent + 4 && om) {
-        const opt: MenuOption = { indent, line: i + 1, text: om[1], hasBody: false, hasBranch: false }
-        menuStack[menuStack.length - 1].options.push(opt)
-        curOption = opt
-        continue
-      }
-
-      const jm = JUMP_RE.exec(trimmed)
-      const cm = CALL_RE.exec(trimmed)
-      if (jm || cm) {
-        const target = (jm ?? cm)![1]
-        const type: BranchEdge['type'] = cm ? 'call' : curOption ? 'menu' : 'jump'
-        if (curOption) curOption.hasBranch = true
-        if (currentLabel) {
-          edges.push({ from: currentLabel, to: target, type, file, line: i + 1 })
-        }
-        continue
-      }
-
-      if (RETURN_RE.test(trimmed)) {
-        if (currentLabel) labelHasReturn.add(currentLabel)
-        continue
-      }
-
-      if (curOption && indent > curOption.indent) {
-        curOption.hasBody = true
-      }
-    }
-    while (menuStack.length > 0) {
-      const m = menuStack.pop()
-      if (m) closeMenu(m, file)
-    }
-  }
-
-  const labelNames = new Set(nodes.keys())
-  const graphLabels: BranchLabel[] = []
-  const byName = new Map<string, BranchLabel>()
-  for (const n of nodes.values()) {
-    const gl: BranchLabel = { name: n.name, file: n.file, line: n.line, incoming: [], outgoing: [] }
-    byName.set(n.name, gl)
-    graphLabels.push(gl)
-  }
-
-  for (const e of edges) {
-    if (!labelNames.has(e.to)) {
-      addDiag({
-        severity: 'error',
-        code: 'missing-label',
-        message: `跳转目标 label "${e.to}" 不存在`,
-        file: e.file,
-        line: e.line
-      })
-      continue
-    }
-    byName.get(e.from)?.outgoing.push(e.to)
-    byName.get(e.to)?.incoming.push(e.from)
-    if (e.type === 'call' && !labelHasReturn.has(e.to)) {
-      addDiag({
-        severity: 'warning',
-        code: 'call-no-return',
-        message: `call 目标 "${e.to}" 内未找到 return，调用后无法返回 ${e.from}`,
-        file: e.file,
-        line: e.line
-      })
-    }
-    if (e.type === 'call' && labelHasReturn.has(e.to)) {
-      edges.push({ from: e.to, to: e.from, type: 'return', file: e.file, line: e.line })
-    }
-  }
-
-  if (labelNames.has('start')) {
-    const visited = new Set<string>()
-    const queue = ['start']
-    visited.add('start')
-    while (queue.length > 0) {
-      const cur = queue.shift()!
-      const node = byName.get(cur)
-      if (!node) continue
-      for (const next of node.outgoing) {
-        if (!visited.has(next)) {
-          visited.add(next)
-          queue.push(next)
-        }
-      }
-    }
-    for (const gl of graphLabels) {
-      if (!visited.has(gl.name)) {
-        addDiag({
-          severity: 'warning',
-          code: 'unreachable-label',
-          message: `label "${gl.name}" 从 start 出发不可达`,
-          file: gl.file,
-          line: gl.line
-        })
-      }
-    }
-  }
-
-  for (const gl of graphLabels) {
-    gl.incoming = [...new Set(gl.incoming)].sort()
-    gl.outgoing = [...new Set(gl.outgoing)].sort()
-  }
-
-  graphLabels.sort((a, b) => (a.file + String(a.line)).localeCompare(b.file + String(b.line)))
-  return { labels: graphLabels, edges, diagnostics: diags }
-}
 
 export interface RenpyResourceResult {
   missing: string[]
@@ -666,19 +398,21 @@ function parsePatchText(text: string): { ok: true; patch: ScenePatch } | { ok: f
   return validatePatch(parsed)
 }
 
-export async function generateScenePatch(input: { projectDir: string; sceneSpec: string; api: GalgameApi }): Promise<GeneratePatchResult> {
+export async function generateScenePatch(input: { projectDir: string; sceneSpec: string; api: GalgameApi; studioProduction?: boolean }): Promise<GeneratePatchResult> {
   const { projectDir, sceneSpec, api } = input
+  if (input.studioProduction && sceneSpec.length > 120_000) return { ok: false, patch: null, error: '确认的大纲与素材上下文超过单次制作容量，请缩小已确认的制作范围；未截断大纲或写入作品' }
+  const systemPrompt = input.studioProduction ? RENPY_PATCH_SYSTEM.replace('5. lines 只能包含剧本文本节点（对白/旁白/场景/音乐/菜单/jump/好感度），不得包含 define/default 声明', '5. Studio 完整生产只支持场景描述列出的剧情语句，允许自有 label；禁止 define/default、Python 或其他新声明').replace('6. 引用角色/好感度变量/label 时，必须使用下方【项目信息】中已有的名字', '6. Studio 完整生产允许在场景描述给定的独占命名空间内新增 label；角色和素材只能用已声明者。必须遵循完整制作约定和目标文件的原样 anchor。') : RENPY_PATCH_SYSTEM
   const ctx = await buildProjectContext(projectDir)
   const userMsg = [
     `## 项目信息\n${formatBranchContext(ctx)}`,
-    `## 场景描述\n${sceneSpec.slice(0, 3000)}`,
+    `## 场景描述\n${input.studioProduction ? sceneSpec : sceneSpec.slice(0, 3000)}`,
     `## 输出\n请输出符合约束的 JSON patch。`
   ].join('\n\n')
 
   let text = ''
   try {
     text = await callPatchModel(api, [
-      { role: 'system', content: RENPY_PATCH_SYSTEM },
+      { role: 'system', content: systemPrompt },
       { role: 'user', content: userMsg }
     ])
   } catch (e) {
@@ -689,7 +423,7 @@ export async function generateScenePatch(input: { projectDir: string; sceneSpec:
   if (!parsed.ok) {
     try {
       const retry = await callPatchModel(api, [
-        { role: 'system', content: RENPY_PATCH_SYSTEM },
+        { role: 'system', content: systemPrompt },
         { role: 'user', content: userMsg },
         { role: 'assistant', content: text },
         { role: 'user', content: `上次输出无效：${parsed.error}。请重新输出，只输出符合 schema 的严格 JSON，不要代码块围栏。` }

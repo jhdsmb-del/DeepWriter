@@ -30,6 +30,15 @@ jobs:
       - name: Install dependencies (npm ci)
         run: npm ci
 
+      # Tests verify actual Windows ASAR payloads on every OS, without loading them.
+      - name: Prepare foreign native notice fixture
+        if: runner.os != 'Windows'
+        shell: bash
+        run: |
+          mkdir -p out/ci-native-fixture
+          npm pack @napi-rs/canvas-win32-x64-msvc@0.1.80 --ignore-scripts --pack-destination out/ci-native-fixture
+          node scripts/prepare-ci-native-fixture.cjs out/ci-native-fixture/napi-rs-canvas-win32-x64-msvc-0.1.80.tgz
+
       - name: Check (types, regression gates, docs and production build)
         run: npm run check
 

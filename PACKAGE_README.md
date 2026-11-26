@@ -4,7 +4,11 @@
 
 先完整解压，不要从压缩包预览窗口运行。版本以 `complete-manifest.json` 和实际文件名为准；两端共用引擎，但默认独立保存会话、配置和凭据，不会自动互相导入数据。
 
-[本版更新](docs/RELEASE_NOTES_5.0.1.md) · [桌面指南](docs/QUICKSTART.md) · [终端指南](docs/CLI.md)
+[本版更新](docs/RELEASE_NOTES_6.0.0.md) · [桌面指南](docs/QUICKSTART.md) · [终端指南](docs/CLI.md)
+
+## 先玩一个故事
+
+打开 Galgame 工作室，导入 `examples/last-ferry`。点「剧情与分支」可以先看两个选择；选好 SDK 后，点「试玩原项目」亲自走到结局。你也可以在终端运行 `.\cli\deepwriter.cmd galgame routes .\examples\last-ferry`。
 
 ## Desktop：三步开始
 

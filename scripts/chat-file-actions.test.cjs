@@ -28,7 +28,7 @@ test('facts survive legacy envelopes; frozen roots, collisions, unknown dialog p
   assert.equal((await resolveChatFile(repo,anchor('same.md'))).state,'missing')
   assert.match((await readyChatFile(repo,anchor('same.md'))).message,/移动或删除/)
   assert.equal((await resolveChatFile(repo,{...anchor('same.md'),sessionId:'other'})).ok,false)
-  facts=[];assert.equal((await resolveChatFile(repo,anchor('../doc/same.md'))).path,path.join(doc,'same.md'))
+  facts=[];assert.equal((await resolveChatFile(repo,anchor('../doc/same.md'))).path,await fs.realpath(path.join(doc,'same.md')))
   const outside=path.join(home,'outside.md');await fs.writeFile(outside,'outside');assert.equal((await resolveChatFile(repo,anchor(outside))).ok,false)
   await fs.symlink(home,path.join(work,'escape'),'junction');assert.equal((await resolveChatFile(repo,anchor('escape/outside.md'))).ok,false)
  }finally{await fs.rm(home,{recursive:true,force:true})}
@@ -64,23 +64,44 @@ test('document/archive menus can open safely; exact code/program receipts offer 
  try{
   for(const name of ['资料.md','data.json','config.yaml','book.epub','backup.zip']){
    const file=path.join(home,name);await fs.writeFile(file,'fixture');const target=await readyChatFile(repo,anchor(name))
-   assert.equal(target.ok,true,name);assert.equal(target.canOpen,true,name)
+   assert.equal(target.ok,true,name);assert.equal(target.path,await fs.realpath(file),name);assert.equal(target.canOpen,true,name)
    const menu=buildChatFileContextActions(target.canOpen);assert.deepEqual(menu.map(a=>a.id),['open','reveal','copy-absolute'])
    assert.deepEqual(menu.map(a=>a.label),['打开文件','在文件资源管理器中显示','复制路径'])
    for(const item of menu)assert.equal((await executeChatFileContextAction(item.id,{realpath:target.path,kind:'file',canOpen:target.canOpen},deps)).ok,true)
-   assert.deepEqual(recorded.splice(0),[['open',file],['reveal',file],['copy',file]])
+   assert.deepEqual(recorded.splice(0),[['open',target.path],['reveal',target.path],['copy',target.path]])
   }
   for(const name of ['source.ts','script.js','script.py','script.ps1','program.exe','shortcut.lnk','page.html','drawing.svg']){
    const file=path.join(home,name);await fs.writeFile(file,'not executable fixture')
    assert.equal(chatFileCandidate(name),name);assert.equal(chatFileCanOpen(name),false)
    facts=[];assert.equal((await readyChatFile(repo,anchor(name))).ok,false,'ordinary no-receipt code is not a file link: '+name)
    facts=[{name:'write_file',result_path:file,canonical_path:await fs.realpath(file)}]
-   const target=await readyChatFile(repo,anchor(name));assert.equal(target.ok,true,name);assert.equal(target.canOpen,false,name)
+   const target=await readyChatFile(repo,anchor(name));assert.equal(target.ok,true,name);assert.equal(target.path,await fs.realpath(file),name);assert.equal(target.canOpen,false,name)
    const menu=buildChatFileContextActions(target.canOpen);assert.deepEqual(menu.map(a=>a.id),['reveal','copy-absolute'])
    const cap={realpath:target.path,kind:'file',canOpen:target.canOpen}
    assert.equal((await executeChatFileContextAction('open',cap,deps)).ok,false,'even forged IPC open cannot launch '+name)
    for(const item of menu)assert.equal((await executeChatFileContextAction(item.id,cap,deps)).ok,true)
-   assert.deepEqual(recorded.splice(0),[['reveal',file],['copy',file]])
+   assert.deepEqual(recorded.splice(0),[['reveal',target.path],['copy',target.path]])
   }
+ }finally{await fs.rm(home,{recursive:true,force:true})}
+})
+
+test('Windows short-path legacy and canonical receipts keep file identity and reject junction redirects', {skip:process.platform!=='win32'}, async t=>{
+ const home=await fs.mkdtemp(path.join(os.tmpdir(),'dw receipt long spelling '))
+ try{
+  const {execFileSync}=require('node:child_process')
+  const short=execFileSync('cmd.exe',['/d','/s','/c',`for %I in ("${home}") do @echo %~sI`],{encoding:'utf8',windowsVerbatimArguments:true}).trim()
+  if(short.toLowerCase()===home.toLowerCase()){t.skip('8.3 path names are disabled on this volume');return}
+  const file=path.join(short,'receipt.md');await fs.writeFile(file,'original');const canonical=await fs.realpath(file)
+  let facts=[{name:'write_file',result_path:file}]
+  const repo={getRun:()=>({session_id:'s',config_json:JSON.stringify({workDir:short,docDir:short})}),chatFileMessageMentions:()=>true,getRunWrittenFiles:()=>facts}
+  const anchor={kind:'message',sessionId:'s',messageId:'r',candidate:'receipt.md'}
+  assert.equal((await readyChatFile(repo,anchor)).path,canonical,'legacy 8.3 spelling is not redirection')
+  facts[0].canonical_path=canonical
+  assert.equal((await readyChatFile(repo,anchor,canonical)).path,canonical,'new receipt keeps canonical identity')
+  facts[0].canonical_path=path.join(home,'different.md')
+  assert.equal((await readyChatFile(repo,anchor)).ok,false,'new receipt never discards its recorded identity')
+  const alias=path.join(home,'alias');await fs.symlink(home,alias,'junction')
+  facts=[{name:'write_file',result_path:path.join(alias,'receipt.md')}]
+  assert.equal((await readyChatFile(repo,anchor)).ok,false,'legacy junction is still refused')
  }finally{await fs.rm(home,{recursive:true,force:true})}
 })

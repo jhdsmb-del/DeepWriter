@@ -24,7 +24,7 @@ import {
 import { downloadAndInstallManagedSdk } from '../src/main/renpySdk'
 import { GalgameStudioService, createRenpyProject } from '../src/main/galgameStudio'
 import { createGrillMeState, grillMeOutlineHash, type GrillMeOutline, type GrillMeState } from '../src/shared/grillMe'
-import { galgameApiFromEffectiveProfile } from '../src/main/galgame'
+import { applyRenpyPatch, galgameApiFromEffectiveProfile } from '../src/main/galgame'
 
 let passed = 0
 let failed = 0
@@ -203,7 +203,14 @@ async function main(): Promise<void> {
       getGrillState: async () => grillState,
       inspectSdk: async () => inspection,
       lint: async (_layout, projectDir) => ({ ok: true, verified: true, output: '', exitCode: 0, command: `fixture renpy.py ${projectDir} lint --error-code` }),
-      runProductionAgent: async () => { productionCalls++; return { status: 'agent_applied', message: 'fixture Agent applied' } }
+      runProductionAgent: async (input) => {
+        productionCalls++
+        const raw = await fsp.readFile(path.join(input.projectDir, input.targetFile), 'utf8')
+        const prefix = /^label (\w+)_start:$/m.exec(raw)![1]
+        const speaker = /^define (\w+) = Character/m.exec(raw)![1]
+        const applied = await applyRenpyPatch({ projectDir: input.projectDir, patch: { file: input.targetFile, operations: [{ op: 'insert_after', anchor: '    # DeepWriter Agent insertion point', lines: [`    jump ${prefix}_scene_1`, '', `label ${prefix}_scene_1:`, `    ${speaker} "我认得这枚邮戳。她寄信那天还没有离开这里。"`, '    return'] }] } })
+        return { status: applied.ok ? 'agent_applied' : 'agent_failed', message: applied.error ?? 'local production fixture applied; no real model' }
+      }
     })
     let workflow = await studioService.create({ sessionId: 'session-workflow', project })
     await studioService.inspectSdk(workflow.studioId)
@@ -226,8 +233,8 @@ async function main(): Promise<void> {
     check('离开页面后可按 session 恢复工作台', restored?.state.studioId === workflow.studioId && restored.state.stage === 'done')
     const selectedApi = galgameApiFromEffectiveProfile({
       secret: 'fixture-secret',
-      provider: { baseUrl: 'https://example.com/v1', adapterId: 'custom.openai-compatible-chat', chatPath: '/chat/completions', authStyle: 'bearer', transportPolicy: { scope: 'public_https', allowNonDefaultPort: false } },
-      model: { remoteModelId: 'writer-model', maxOutputTokens: 7777 },
+      provider: { enabled: true, baseUrl: 'https://example.com/v1', adapterId: 'custom.openai-compatible-chat', chatPath: '/chat/completions', authStyle: 'bearer', transportPolicy: { scope: 'public_https', allowNonDefaultPort: false } },
+      model: { enabled: true, remoteModelId: 'writer-model', maxOutputTokens: 7777 },
       profile: { generation: { maxOutputTokens: 6000, temperature: 0.4, topP: 0.8 }, reasoning: { mode: 'enabled', effort: 'medium' }, compatibilityMappingId: 'openai_chat.reasoning_effort_top_level' }
     } as Parameters<typeof galgameApiFromEffectiveProfile>[0], '保持角色克制')
     check('Galgame Agent 使用当前 Profile 模型/推理/预设', selectedApi.model === 'writer-model' && selectedApi.maxTokens === 6000 && selectedApi.thinking?.enabled === true && selectedApi.thinking.effort === 'medium' && selectedApi.userPresetPrompt === '保持角色克制')

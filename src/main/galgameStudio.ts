@@ -1,4 +1,4 @@
-import { promises as fs } from 'node:fs'
+import { promises as fs, constants as fsConstants } from 'node:fs'
 import * as path from 'node:path'
 import { createHash, randomBytes } from 'node:crypto'
 import {
@@ -22,7 +22,8 @@ import {
   type GalgameProductionHandoff
 } from '../shared/galgameStudio'
 import { grillMeOutlineHash, type GrillMeOutline, type GrillMeState } from '../shared/grillMe'
-import { buildBranchGraph, parseLintOutput, type BranchGraph, type LintDiagnostic } from './galgame'
+import { applyRenpyPatch, buildBranchGraph, parseLintOutput, type BranchGraph, type LintDiagnostic } from './galgame'
+import { validateStudioStory } from './galgameProduction'
 import { downloadAndInstallManagedSdk, inspectRenpySdk, runRenpyLint, type RenpySdkCandidate, type RenpySdkInspection, type RenpySdkLayout, type SdkCommandRunner, type SdkDownloadOptions, type SdkFetch } from './renpySdk'
 
 const IMAGE_EXTENSIONS = new Set(['.png', '.jpg', '.jpeg', '.webp', '.gif'])
@@ -44,9 +45,9 @@ export interface GalgameStudioDeps {
   downloadSdk?: (options: Omit<SdkDownloadOptions, 'userDataDir'>) => Promise<RenpySdkCandidate>
   lint?: (layout: RenpySdkLayout, projectDir: string) => Promise<{ ok: boolean; output: string; exitCode: number | null; command: string; verified: boolean; cancelled?: boolean }>
   /**
-   * The one production boundary.  The service owns the stage gate and
-   * scaffold; the host wires this callback to the existing Galgame Agent
-   * patch generator + safe patch applier.  No renderer/model credentials cross
+   * The service owns the stage gate, isolated candidate project and exclusive
+   * publication. The host applies a production patch to that candidate only
+   * through the existing Galgame Agent generator and safe patch applier.  No renderer/model credentials cross
    * this boundary.
    */
   runProductionAgent?: (input: {
@@ -135,7 +136,7 @@ function renpyString(value: string): string {
 function stableGraph(graph: BranchGraph): unknown {
   return {
     labels: [...graph.labels].map((label) => ({ name: label.name, file: label.file, line: label.line, incoming: [...label.incoming].sort(), outgoing: [...label.outgoing].sort() })).sort((a, b) => `${a.file}:${a.line}:${a.name}`.localeCompare(`${b.file}:${b.line}:${b.name}`)),
-    edges: [...graph.edges].map((edge) => ({ from: edge.from, to: edge.to, type: edge.type, file: edge.file, line: edge.line })).sort((a, b) => `${a.file}:${a.line}:${a.from}:${a.to}:${a.type}`.localeCompare(`${b.file}:${b.line}:${b.from}:${b.to}:${b.type}`)),
+    edges: [...graph.edges].map((edge) => ({ from: edge.from, to: edge.to, type: edge.type, file: edge.file, line: edge.line, ...(edge.choice === undefined ? {} : { choice: edge.choice }) })).sort((a, b) => `${a.file}:${a.line}:${a.from}:${a.to}:${a.type}`.localeCompare(`${b.file}:${b.line}:${b.from}:${b.to}:${b.type}`)),
     diagnostics: [...graph.diagnostics].map((diag) => ({ severity: diag.severity, code: diag.code, message: diag.message, file: diag.file, line: diag.line })).sort((a, b) => `${a.file}:${a.line}:${a.code}:${a.message}`.localeCompare(`${b.file}:${b.line}:${b.code}:${b.message}`))
   }
 }
@@ -191,7 +192,7 @@ export async function createRenpyProject(input: CreateProjectInput): Promise<Cre
   await fs.mkdir(path.join(projectDir, 'game', 'images', 'backgrounds'), { recursive: true })
   await fs.mkdir(path.join(projectDir, 'game', 'audio'), { recursive: true })
   await writeAtomic(path.join(projectDir, 'game', 'config.rpy'), `define config.name = "${renpyString(name)}"\n`)
-  await writeAtomic(path.join(projectDir, 'game', 'script', 'script.rpy'), '# DeepWriter Galgame 项目\nlabel start:\n    "请在 Galgame Studio 中确认素材与大纲后生成剧本。"\n    return\n')
+  await writeAtomic(path.join(projectDir, 'game', 'script', 'script.rpy'), PROJECT_BOOTSTRAP)
   const projectId = randomId('project')
   return { projectId, projectDir, projectName: name, mode: 'create' }
 }
@@ -277,13 +278,13 @@ function uniqueNames(entries: Array<{ key: string; base: string }>, reserved: st
 
 /** One namespace plan is shared by new definitions, file copies, initial
  * staging and the production Agent. Existing project files are not renamed. */
-export function buildGalgameNames(manifest: GalgameAssetManifest): {
+export function buildGalgameNames(manifest: GalgameAssetManifest, prefix = 'dw'): {
   characters: Map<string, string>; sprites: Map<string, string>; backgrounds: Map<string, string>; assetStems: Map<string, string>
 } {
-  const characters = uniqueNames(manifest.characters.map(item => ({ key: item.id, base: `dw_${safeIdentifier(item.id, 'character')}` })), ['dw_narrator'])
+  const characters = uniqueNames(manifest.characters.map(item => ({ key: item.id, base: `${prefix}_${safeIdentifier(item.id, 'character')}` })), [`${prefix}_narrator`])
   const images = uniqueNames([
     ...manifest.sprites.map(item => ({ key: `sprite:${item.id}`, base: `${characters.get(item.characterId)}_${safeIdentifier(item.expression, 'default')}` })),
-    ...manifest.backgrounds.map(item => ({ key: `background:${item.id}`, base: `dw_bg_${safeIdentifier(item.id, 'background')}` }))
+    ...manifest.backgrounds.map(item => ({ key: `background:${item.id}`, base: `${prefix}_bg_${safeIdentifier(item.id, 'background')}` }))
   ])
   const assetStems = new Map<string, string>()
   for (const items of [manifest.sprites, manifest.backgrounds, manifest.audio]) {
@@ -294,104 +295,68 @@ export function buildGalgameNames(manifest: GalgameAssetManifest): {
 
 type GalgameNames = ReturnType<typeof buildGalgameNames>
 
-function buildGeneratedScript(manifest: GalgameAssetManifest, outline: GrillMeOutline, copied: Array<{ id: string; target: string; kind: GalgameAssetKind }>, names: GalgameNames): string {
-  const characters = manifest.characters
-  const sprites = manifest.sprites
-  const backgrounds = manifest.backgrounds
-  const lines: string[] = [
-    '# This file is generated by DeepWriter Galgame Studio.',
-    '# Asset paths are project-relative and were copied after FileRef validation.',
-    ''
-  ]
-  characters.forEach((character) => {
-    const id = names.characters.get(character.id)!
-    lines.push(`define ${id} = Character("${renpyString(character.name)}")`)
-  })
-  lines.push('define dw_narrator = Character(None)')
-  lines.push('')
-  for (const sprite of sprites) {
-    const copiedAsset = copied.find((item) => item.id === sprite.id)
-    if (!copiedAsset) continue
-    const characterId = names.characters.get(sprite.characterId)
-    if (!characterId) continue
-    const imageId = names.sprites.get(sprite.id)!
-    const relativePath = `images/characters/${path.basename(copiedAsset.target)}`
-    lines.push(`image ${imageId} = "${renpyString(relativePath)}"`)
+const PROJECT_BOOTSTRAP = '# DeepWriter Galgame 项目\nlabel start:\n    "请在 Galgame Studio 中确认素材与大纲后生成剧本。"\n    return\n'
+const INSERTION_POINT = '    # DeepWriter Agent insertion point'
+
+type CopiedAsset = { id: string; target: string; kind: GalgameAssetKind }
+
+function buildGeneratedScript(manifest: GalgameAssetManifest, copied: CopiedAsset[], names: GalgameNames, prefix: string): { raw: string; header: string } {
+  const lines = ['# Generated candidate; published only after production validation.', '']
+  for (const character of manifest.characters) lines.push(`define ${names.characters.get(character.id)!} = Character("${renpyString(character.name)}")`)
+  for (const asset of [...manifest.sprites, ...manifest.backgrounds]) {
+    const copy = copied.find(item => item.id === asset.id)!
+    const image = names.sprites.get(asset.id) ?? names.backgrounds.get(asset.id)!
+    lines.push(`image ${image} = "${renpyString(`images/deepwriter_assets_${prefix}/${path.basename(copy.target)}`)}"`)
   }
-  for (const background of backgrounds) {
-    const copiedAsset = copied.find((item) => item.id === background.id)
-    if (!copiedAsset) continue
-    const imageId = names.backgrounds.get(background.id)!
-    const relativePath = `images/backgrounds/${path.basename(copiedAsset.target)}`
-    lines.push(`image ${imageId} = "${renpyString(relativePath)}"`)
-  }
-  lines.push('', 'label dw_start:')
-  // This stable, unique anchor is the handoff point for the existing
-  // Galgame Agent patch generator.  The scaffold is deliberately useful on
-  // its own, but is not described as AI-produced until that patch is applied.
-  lines.push('    # DeepWriter Agent insertion point')
-  if (backgrounds[0]) lines.push(`    scene ${names.backgrounds.get(backgrounds[0].id)!} with dissolve`)
-  if (sprites[0]) lines.push(`    show ${names.sprites.get(sprites[0].id)!} at center with dissolve`)
-  lines.push(`    dw_narrator "${renpyString(outline.premise || outline.title || '故事开始了。')}"`)
-  const sections = outline.sections.length > 0 ? outline.sections : [{ id: 'section_1', title: outline.title || '序章', purpose: outline.premise || '', targetChars: 0, beats: [], sourceSlotIds: [] }]
-  sections.forEach((section, index) => {
-    const label = `dw_scene_${index + 1}`
-    lines.push('', `label ${label}:`)
-    lines.push(`    # ${renpyString(section.title || `第 ${index + 1} 节`)}`)
-    if (section.purpose.trim()) lines.push(`    dw_narrator "${renpyString(section.purpose)}"`)
-    const beats = section.beats.filter((beat) => beat.trim()).slice(0, 20)
-    beats.forEach((beat) => lines.push(`    dw_narrator "${renpyString(beat)}"`))
-    if (index < sections.length - 1) {
-      lines.push('    menu:', `        "继续":`, `            jump dw_scene_${index + 2}`)
-    } else {
-      lines.push('    return')
-    }
-  })
-  return `${lines.join('\n')}\n`
+  const header = lines.join('\n') + '\n\n'
+  return { header, raw: header + [`label ${prefix}_start:`, `    scene ${names.backgrounds.get(manifest.backgrounds[0].id)!} with dissolve`, `    show ${names.sprites.get(manifest.sprites[0].id)!} at center with dissolve`, INSERTION_POINT, ''].join('\n') }
 }
 
-function buildAgentSceneSpec(
-  manifest: GalgameAssetManifest,
-  outline: GrillMeOutline,
-  branchHash: string,
-  targetFile: string,
-  names: GalgameNames,
-  copied: Array<{ id: string; target: string; kind: GalgameAssetKind }>
-): string {
-  const characterContext = manifest.characters
-    .map((character) => `- ${character.name}（${character.id}）：${character.setting}；对白变量：${names.characters.get(character.id)!}`)
-    .join('\n')
-  const spriteContext = manifest.sprites
-    .map((sprite) => `- ${sprite.characterId} / ${sprite.expression}（素材 ${sprite.id}）：${sprite.displayName ?? sprite.fileRefId}；image ${names.sprites.get(sprite.id)!}；调用：show ${names.sprites.get(sprite.id)!}`)
-    .join('\n')
-  const backgroundContext = manifest.backgrounds
-    .map((background) => `- ${background.name}（素材 ${background.id}）：${background.displayName ?? background.fileRefId}；image ${names.backgrounds.get(background.id)!}；调用：scene ${names.backgrounds.get(background.id)!}`)
-    .join('\n')
-  const audioContext = manifest.audio.map(audio => `- ${audio.name}（素材 ${audio.id}）：audio/${path.basename(copied.find(item => item.id === audio.id)!.target)}`).join('\n')
-  const outlineContext = outline.sections
-    .map((section, index) => `${index + 1}. ${section.title}：${section.purpose}\n   ${section.beats.slice(0, 20).join('；')}`)
-    .join('\n')
+function buildAgentSceneSpec(manifest: GalgameAssetManifest, outline: GrillMeOutline, branchHash: string, targetFile: string, names: GalgameNames, copied: CopiedAsset[], prefix: string, seed: string, graph: BranchGraph): string {
   return [
-    '这是已通过 Grill Me 多轮澄清并由用户确认的大纲与分支图，请为 Galgame 生产一个可运行的 Ren\'Py 剧情节点。',
-    `目标文件必须是 ${targetFile}，只在其中的 `,
-    '    # DeepWriter Agent insertion point',
-    '这一行之后插入剧情节点；不要修改或新增 define/default 声明。',
-    `分支图确认指纹：${branchHash}`,
-    `标题：${outline.title}`,
-    `前提：${outline.premise}`,
-    `角色设定：\n${characterContext}`,
-    `立绘与表情：\n${spriteContext}`,
-    `背景：\n${backgroundContext}`,
-    `音频实际路径：\n${audioContext || '无'}`,
-    `已生成 label：dw_start、${outline.sections.map((_section, index) => `dw_scene_${index + 1}`).join('、') || 'dw_scene_1'}`,
-    `大纲：\n${outlineContext}`,
-    '请让插入内容体现已确认的角色、情绪、场景和分支意图；仅输出既有角色和已存在图片/标签可用的对白、旁白、scene/show/menu/jump 等 Ren\'Py 节点。'
+    '这是 Studio 完整作品生产，不是单节点扩写。把已确认大纲写成能从入口玩到结局的 Ren\'Py 剧情；不得用大纲说明、事件列表冒充对白。',
+    `目标文件：${targetFile}；仅用一次 insert_after，在以下原样整行后插入完整剧情：`, INSERTION_POINT,
+    `入口 ${prefix}_start 已有场景/立绘；先 jump ${prefix}_scene_1，再写所有场景 label。`,
+    `每个大纲节必须对应 label：${outline.sections.map((_s, i) => `${prefix}_scene_${i + 1}`).join('、')}`,
+    `允许新增 label，但名字必须以 ${prefix}_ 开头。引用的 jump 目标必须在本次稿中定义。每个场景与选项路径用 jump 或 return 明确收尾。`,
+    '遵循大纲真实意图：单线直接 jump；只有确有选择时才写 menu，至少两个具体选项，必须有不同的可见后果。不要插入只有“继续”的菜单，也不要为了凑路线强加分支。',
+    '只用对白/旁白、label、jump、return、menu、scene/show/hide（at left/center/right，with dissolve/fade）、with dissolve/fade、play/stop music/sound。不要 define/default、Python、$、call、if、自定义 transform 或未声明变量。旁白直接用双引号字符串。',
+    '人物素材声明不可改。对白使用下列变量；引号与反斜杠正确转义。每节必须有实际剧情，全文要体现角色设定、冲突和结局，不要复述大纲。',
+    `分支图确认指纹：${branchHash}\n确认时的现有图（只作创作上下文，不得修改）：${JSON.stringify(graph)}`,
+    `确认大纲（含全部节、场景、节拍与篇幅）：${JSON.stringify(outline)}`,
+    '角色：' + manifest.characters.map(c => `\n- ${c.name}（${c.id}）：${c.setting}；性格：${c.personality ?? ''}；备注：${c.notes ?? ''}；对白变量：${names.characters.get(c.id)!}`).join(''),
+    '立绘：' + manifest.sprites.map(s => `\n- ${s.characterId} / ${s.expression}（素材 ${s.id}）：image ${names.sprites.get(s.id)!}；调用：show ${names.sprites.get(s.id)!}`).join(''),
+    '背景：' + manifest.backgrounds.map(b => `\n- ${b.name}（素材 ${b.id}）：image ${names.backgrounds.get(b.id)!}；调用：scene ${names.backgrounds.get(b.id)!}`).join(''),
+    '音频：' + manifest.audio.map(a => `\n- ${a.name}（${a.kind}）：audio/deepwriter_assets_${prefix}/${path.basename(copied.find(c => c.id === a.id)!.target)}`).join(''),
+    `目标文件当前完整内容：\n${seed}`
   ].join('\n')
+}
+
+/** Exclusive publication, never rename over an author's existing file. */
+async function publishNewFile(target: string, raw: string): Promise<void> {
+  const temporary = `${target}.dw-tmp-${randomId('publish')}`
+  try {
+    await fs.writeFile(temporary, raw, { encoding: 'utf8', flag: 'wx' })
+    await fs.link(temporary, target)
+  } finally { await fs.rm(temporary, { force: true }).catch(() => undefined) }
+}
+
+function reachableFromStart(graph: BranchGraph, label: string): boolean {
+  const visited = new Set<string>(), queue = ['start']
+  for (let cursor = 0; cursor < queue.length; cursor++) {
+    const next = queue[cursor]
+    if (next === label) return true
+    if (visited.has(next)) continue
+    visited.add(next)
+    queue.push(...graph.edges.filter(edge => edge.from === next).map(edge => edge.to))
+  }
+  return false
 }
 
 export class GalgameStudioService {
   private readonly deps: GalgameStudioDeps
   private readonly states = new Map<string, GalgameStudioState>()
+  private readonly generatingProjects = new Set<string>()
 
   constructor(deps: GalgameStudioDeps) {
     this.deps = deps
@@ -479,10 +444,11 @@ export class GalgameStudioService {
     }
     const check = await validateGalgameAssetManifest(input.manifest, { sessionId: state.sessionId, resolveFile: this.deps.resolveAssetRef })
     if (!check.ok) {
-      await this.save(advanceGalgameStudio(state, { assetsReady: false, assets: null, error: check.issues.map((issue) => issue.message).join('；') }))
+      await this.save(advanceGalgameStudio(state, { assetsReady: false, assets: null, outlineBranchConfirmed: false, lint: null, error: check.issues.map((issue) => issue.message).join('；') }))
       return check
     }
-    await this.save(advanceGalgameStudio(state, { assetsReady: true, assets: structuredClone(input.manifest), error: null }))
+    const changed = JSON.stringify(state.assets) !== JSON.stringify(input.manifest)
+    await this.save(advanceGalgameStudio(state, { assetsReady: true, assets: structuredClone(input.manifest), ...(changed ? { outlineBranchConfirmed: false, production: null, lint: null } : {}), error: null }))
     return check
   }
 
@@ -497,86 +463,112 @@ export class GalgameStudioService {
     const graph = this.deps.getBranchGraph ? await this.deps.getBranchGraph(state.projectDir) : await buildBranchGraph(state.projectDir)
     const currentBranchHash = hashGalgameBranchGraph(graph)
     if (confirmation.branchHash !== currentBranchHash) throw new Error('分支图已变化，请重新扫描并确认')
-    const next = advanceGalgameStudio(state, { grillStateId: grill.stateId, grillConfirmed: true, outlineHash: durableOutlineHash, branchHash: currentBranchHash, outlineBranchConfirmed: true, error: null })
+    const next = advanceGalgameStudio(state, { grillStateId: grill.stateId, grillConfirmed: true, outlineHash: durableOutlineHash, branchHash: currentBranchHash, outlineBranchConfirmed: true, ...(state.outlineHash !== durableOutlineHash ? { production: null, lint: null } : {}), error: null })
     await this.save(next)
     return next
   }
 
   async generate(studioId: string): Promise<StudioGenerationResult> {
     const state = await this.require(studioId)
+    const key = path.resolve(state.projectDir).toLowerCase()
+    if (this.generatingProjects.has(key)) throw new Error('本项目正在制作中，请等待当前制作结束')
+    this.generatingProjects.add(key)
+    try { return await this.generateCandidate(state) } finally { this.generatingProjects.delete(key) }
+  }
+
+  private async generateCandidate(state: GalgameStudioState): Promise<StudioGenerationResult> {
     assertStudioGenerationAllowed(state)
     if (!state.assets || !state.outlineHash || !state.branchHash) throw new Error('制作资料不完整')
     if (!this.deps.resolveAssetRef) throw new Error('素材文件授权服务未就绪，禁止写盘')
     const grill = await this.deps.getGrillState?.(state.sessionId)
-    if (!grill || grill.status !== 'confirmed' || !grill.approvedOutline || grill.outlineHash !== state.outlineHash) throw new Error('Grill Me 大纲未保持确认状态，禁止生成')
+    if (!grill || grill.sessionId !== state.sessionId || grill.status !== 'confirmed' || !grill.approvedOutline || grill.outlineHash !== state.outlineHash || grillMeOutlineHash(grill.approvedOutline) !== state.outlineHash) throw new Error('Grill Me 大纲未保持确认状态，禁止生成')
+    if (!grill.approvedOutline.sections.length) throw new Error('确认大纲没有剧情节，请先补全大纲')
+    // A completed retry is a read, not permission to overwrite authored work.
+    if (state.generatedFile && state.production?.status === 'agent_applied' && state.production.outlineHash === state.outlineHash && state.production.assetsKey === JSON.stringify(state.assets)) {
+      if (!(await fs.stat(state.generatedFile).catch(() => null))?.isFile()) throw new Error('已生成剧本被移动或删除，请重新确认制作计划')
+      return { ok: true, generatedFile: state.generatedFile, copiedAssets: [], production: state.production }
+    }
+    const graph = await (this.deps.getBranchGraph ? this.deps.getBranchGraph(state.projectDir) : buildBranchGraph(state.projectDir))
+    if (hashGalgameBranchGraph(graph) !== state.branchHash) {
+      await this.save(advanceGalgameStudio(state, { outlineBranchConfirmed: false, lint: null, error: '分支图已变化，请重新扫描并确认' }))
+      throw new Error('分支图已变化，请重新扫描并确认')
+    }
     const manifest = state.assets
-    const names = buildGalgameNames(manifest)
-    const copied: Array<{ id: string; target: string; kind: GalgameAssetKind }> = []
-    const copyOne = async (id: string, fileRefId: string, kind: GalgameAssetKind, directory: string, fallbackExt: string, displayName?: string): Promise<void> => {
-      const file = await this.deps.resolveAssetRef?.(fileRefId, state.sessionId)
-      if (!file) throw new Error(`素材 ${id} 的文件引用无效或已过期，请重新选择`)
-      const ext = path.extname(file.displayName || file.realpath).toLowerCase() || fallbackExt
-      const allowed = kind === 'audio' ? AUDIO_EXTENSIONS : IMAGE_EXTENSIONS
-      if (!allowed.has(ext)) throw new Error(`素材 ${id} 类型不受支持：${ext}`)
-      const target = path.join(state.projectDir, 'game', directory, `${names.assetStems.get(id)!}${ext}`)
-      if (!(await realContained(target, path.join(state.projectDir, 'game')))) throw new Error(`素材 ${id} 目标路径越界`)
+    const check = await validateGalgameAssetManifest(manifest, { sessionId: state.sessionId, resolveFile: this.deps.resolveAssetRef })
+    if (!check.ok) throw new Error(check.issues.map(issue => issue.message).join('；'))
+    const prefix = `dw_${randomBytes(8).toString('hex')}`
+    const names = buildGalgameNames(manifest, prefix)
+    const candidateDir = path.join(path.resolve(this.deps.baseDir), 'galgame-studio-candidates', state.studioId, prefix)
+    const candidateGame = path.join(candidateDir, 'game')
+    const assetDirectory = `deepwriter_assets_${prefix}`
+    await fs.mkdir(path.join(candidateGame, 'images', assetDirectory), { recursive: true })
+    await fs.mkdir(path.join(candidateGame, 'audio', assetDirectory), { recursive: true })
+    const copied: CopiedAsset[] = []
+    for (const entry of assetEntries(manifest)) {
+      const file = await this.deps.resolveAssetRef(entry.fileRefId, state.sessionId)
+      if (!file) throw new Error(`素材 ${entry.id} 的文件引用无效或已过期`)
+      const stat = await fs.stat(file.realpath)
+      if (file.size !== undefined && file.size !== stat.size) throw new Error(`素材 ${entry.id} 已变化，请重新选择`)
+      const ext = path.extname(file.displayName || file.realpath).toLowerCase()
+      if (!(entry.kind === 'audio' ? AUDIO_EXTENSIONS : IMAGE_EXTENSIONS).has(ext)) throw new Error(`素材 ${entry.id} 类型不受支持`)
+      const target = path.join(candidateGame, entry.kind === 'audio' ? 'audio' : 'images', assetDirectory, `${entry.kind}_${names.assetStems.get(entry.id)!}${ext}`)
       await copyAtomic(file.realpath, target)
-      copied.push({ id, target, kind })
+      copied.push({ id: entry.id, target, kind: entry.kind })
     }
-    for (const sprite of manifest.sprites) await copyOne(sprite.id, sprite.fileRefId, 'sprite', 'images/characters', '.png', sprite.displayName)
-    for (const background of manifest.backgrounds) await copyOne(background.id, background.fileRefId, 'background', 'images/backgrounds', '.png', background.displayName)
-    for (const audio of manifest.audio) await copyOne(audio.id, audio.fileRefId, 'audio', 'audio', '.ogg', audio.displayName)
-    const generatedFile = path.join(state.projectDir, 'game', 'deepwriter_generated.rpy')
-    if (!(await realContained(generatedFile, path.join(state.projectDir, 'game')))) throw new Error('生成文件路径越界')
-    await writeAtomic(generatedFile, buildGeneratedScript(manifest, grill.approvedOutline, copied, names))
+    const targetFile = `game/deepwriter_${prefix}.rpy`
+    const candidateFile = path.join(candidateDir, targetFile)
+    const seed = buildGeneratedScript(manifest, copied, names, prefix)
+    await writeAtomic(candidateFile, seed.raw)
     const requestedAt = Date.now()
-    const targetFile = path.relative(state.projectDir, generatedFile).replace(/\\/g, '/')
-    let production: GalgameProductionHandoff
-    if (!this.deps.runProductionAgent) {
-      production = {
-        status: 'skeleton_handoff',
-        message: '可运行骨架已创建，等待移交 Galgame Agent 生成剧情节点。',
-        requestedAt,
-        completedAt: null
+    let production: GalgameProductionHandoff = { status: 'skeleton_handoff', message: '候选骨架已保留；请选择写作模型后重试。项目中的剧本与素材未改动。', requestedAt, completedAt: null }
+    try {
+      if (this.deps.runProductionAgent) {
+        const result = await this.deps.runProductionAgent({ sessionId: state.sessionId, projectDir: candidateDir, targetFile, sceneSpec: buildAgentSceneSpec(manifest, grill.approvedOutline, state.branchHash, targetFile, names, copied, prefix, seed.raw, graph) })
+        production = { ...result, requestedAt, completedAt: null }
       }
-    } else {
-      try {
-        const result = await this.deps.runProductionAgent({
-          sessionId: state.sessionId,
-          projectDir: state.projectDir,
-          targetFile,
-          sceneSpec: buildAgentSceneSpec(manifest, grill.approvedOutline, state.branchHash, targetFile, names, copied)
-        })
-        production = {
-          status: result.status,
-          message: result.message,
-          requestedAt,
-          completedAt: result.status === 'agent_failed' ? null : Date.now()
+      if (production.status === 'agent_applied') {
+        const raw = await fs.readFile(candidateFile, 'utf8')
+        const invalid = validateStudioStory(raw, { header: seed.header, entryLabel: `${prefix}_start`, sceneLabels: grill.approvedOutline.sections.map((_s, i) => `${prefix}_scene_${i + 1}`), characters: [...names.characters.values()], images: [...names.sprites.values(), ...names.backgrounds.values()], audio: manifest.audio.map(a => `audio/${assetDirectory}/${path.basename(copied.find(c => c.id === a.id)!.target)}`) })
+        if (invalid) throw new Error(invalid)
+        // Recheck frozen inputs after a potentially long model call.
+        const latest = await this.require(state.studioId)
+        const currentGrill = await this.deps.getGrillState?.(state.sessionId)
+        const currentGraph = await (this.deps.getBranchGraph ? this.deps.getBranchGraph(state.projectDir) : buildBranchGraph(state.projectDir))
+        if (JSON.stringify(latest.assets) !== JSON.stringify(manifest) || !latest.outlineBranchConfirmed || currentGrill?.status !== 'confirmed' || !currentGrill.approvedOutline || grillMeOutlineHash(currentGrill.approvedOutline) !== state.outlineHash || hashGalgameBranchGraph(currentGraph) !== state.branchHash) throw new Error('制作期间大纲、素材或项目分支发生变化，候选稿已保留，请重新确认后制作')
+        const game = path.join(state.projectDir, 'game')
+        const generatedFile = path.join(state.projectDir, targetFile)
+        if (!(await realContained(generatedFile, game))) throw new Error('生成文件目标路径越界')
+        for (const kind of ['images', 'audio']) {
+          const assetTarget = path.join(game, kind, assetDirectory)
+          await fs.mkdir(path.dirname(assetTarget), { recursive: true })
+          if (!(await realContained(assetTarget, game))) throw new Error('素材目标路径越界')
+          await fs.mkdir(assetTarget) // exclusive revision namespace; never overwrite imports/assets
         }
-      } catch (error) {
-        production = {
-          status: 'agent_failed',
-          message: `Galgame Agent 交接失败：${error instanceof Error ? error.message : '未知错误'}`,
-          requestedAt,
-          completedAt: null
+        for (const asset of copied) await fs.copyFile(asset.target, path.join(game, path.relative(candidateGame, asset.target)), fsConstants.COPYFILE_EXCL)
+        await publishNewFile(generatedFile, raw)
+        const entryLabel = `${prefix}_start`
+        const entryFile = path.join(game, 'script', 'script.rpy')
+        const previousEntry = await fs.readFile(entryFile, 'utf8').catch(() => null)
+        let entrypointContent = state.entrypointContent
+        // Only the exact bootstrap or our own unchanged prior launcher is ours.
+        if ((state.projectMode === 'create' && previousEntry === PROJECT_BOOTSTRAP) || (state.entrypointContent && previousEntry === state.entrypointContent)) {
+          const anchor = previousEntry === PROJECT_BOOTSTRAP ? '    "请在 Galgame Studio 中确认素材与大纲后生成剧本。"' : previousEntry!.split(/\r?\n/).find(line => /^    jump /.test(line))!
+          const applied = await applyRenpyPatch({ projectDir: state.projectDir, sessionId: state.sessionId, baseSha256: createHash('sha256').update(previousEntry!).digest('hex'), patch: { file: 'game/script/script.rpy', operations: [{ op: 'replace_line', anchor, lines: [`    jump ${entryLabel}`] }] } })
+          if (!applied.ok) throw new Error(applied.error ?? '启动入口未能安全更新；已写出的剧情文件仍然保留')
+          entrypointContent = previousEntry!.replace(anchor, `    jump ${entryLabel}`)
         }
+        const afterGraph = await buildBranchGraph(state.projectDir)
+        const integration = reachableFromStart(afterGraph, entryLabel) ? 'connected' : 'required'
+        production = { status: 'agent_applied', message: integration === 'connected' ? '剧情已实际写入并接到 start；请运行 Ren\'Py lint 检查。' : `剧情已写入 ${targetFile}；尚未接入主线。请在希望的位置添加 call ${entryLabel}（返回主线）或 jump ${entryLabel}（转入此剧情），再运行 lint。`, requestedAt, completedAt: Date.now(), entryLabel, entryFile: targetFile, integration, outlineHash: state.outlineHash, assetsKey: JSON.stringify(manifest) }
+        await this.save(advanceGalgameStudio(latest, { generatedFile, generatedAt: Date.now(), entrypointContent, production, lint: null, error: null }))
+        return { ok: true, generatedFile, copiedAssets: copied.map(a => ({ ...a, target: path.join(game, path.relative(candidateGame, a.target)) })), production }
       }
+    } catch (error) {
+      production = { status: 'agent_failed', message: `候选稿未完成发布：${error instanceof Error ? error.message : '未知错误'}。候选文件：${candidateFile}`, requestedAt, completedAt: null }
     }
-    const next = advanceGalgameStudio(state, {
-      generatedFile,
-      generatedAt: Date.now(),
-      production,
-      lint: null,
-      error: production.status === 'agent_failed' ? production.message : null
-    })
-    await this.save(next)
-    return {
-      ok: production.status === 'agent_applied',
-      generatedFile,
-      copiedAssets: copied,
-      production,
-      error: production.status === 'agent_applied' ? undefined : production.message
-    }
+    const latest = await this.require(state.studioId)
+    await this.save(advanceGalgameStudio(latest, { production, lint: null, error: production.message }))
+    return { ok: false, generatedFile: candidateFile, copiedAssets: copied, production, error: production.message }
   }
 
   async lintStudio(studioId: string): Promise<StudioLintResult> {
@@ -598,7 +590,10 @@ export class GalgameStudioService {
     const result: StudioLintResult = { ok: execution.ok && errorCount === 0, verified: execution.verified === true, output: execution.output, command: execution.command, exitCode: execution.exitCode, errorCount, warningCount, diagnostics, cancelled: execution.cancelled }
     const latest = await this.require(studioId)
     if (!latest.sdkReady || !sameSdk(latest.sdk, inspection.candidate.evidence)) throw new Error('检查期间 SDK 已变化，本次旧 SDK 的 lint 结果未写入；请重新检查')
-    const next = advanceGalgameStudio(latest, { sdkReady: true, sdk: inspection.candidate.evidence, lint: { ok: result.ok, verified: result.verified, output: result.output, errorCount, warningCount, command: result.command, checkedAt: Date.now() }, error: result.ok ? null : `lint 未通过：${errorCount} 个错误` })
+    if (latest.generatedFile !== state.generatedFile || latest.generatedAt !== state.generatedAt || latest.production?.entryLabel !== state.production?.entryLabel) throw new Error('检查期间剧本已变化，本次旧剧本 lint 结果未写入；请重新检查')
+    const graph = latest.production?.entryLabel ? await buildBranchGraph(latest.projectDir) : null
+    const production = latest.production?.entryLabel && graph ? { ...latest.production, integration: reachableFromStart(graph, latest.production.entryLabel) ? 'connected' as const : 'required' as const } : latest.production
+    const next = advanceGalgameStudio(latest, { production, sdkReady: true, sdk: inspection.candidate.evidence, lint: { ok: result.ok, verified: result.verified, output: result.output, errorCount, warningCount, command: result.command, checkedAt: Date.now() }, error: result.ok ? null : `lint 未通过：${errorCount} 个错误` })
     await this.save(next)
     return result
   }
@@ -606,8 +601,8 @@ export class GalgameStudioService {
   async snapshot(studioId: string): Promise<GalgameStudioSnapshot> {
     const state = await this.require(studioId)
     const sdk = state.sdkReady && state.sdk ? { status: 'ready' as const, source: state.sdk.source, version: state.sdk.version } : { status: 'missing' as const, message: state.error ?? undefined }
-    const graph = await (this.deps.getBranchGraph ? this.deps.getBranchGraph(state.projectDir) : buildBranchGraph(state.projectDir)).catch(() => null)
-    return { state, sdk, assetCheck: state.assets ? validateAssetManifest(state.assets) : null, branchHash: graph ? hashGalgameBranchGraph(graph) : null }
+    const graph = state.assetsReady && state.stage !== 'done' ? await (this.deps.getBranchGraph ? this.deps.getBranchGraph(state.projectDir) : buildBranchGraph(state.projectDir)).catch(() => null) : null
+    return { state, sdk, branchGraph: graph, assetCheck: state.assets ? validateAssetManifest(state.assets) : null, branchHash: graph ? hashGalgameBranchGraph(graph) : null }
   }
 
   private async require(studioId: string): Promise<GalgameStudioState> {

@@ -2,7 +2,7 @@
 
 ## 支持范围
 
-- 安全修复覆盖：当前主分支与 5.0.x 发行线。具体制品状态见 [Releases](https://github.com/jhdsmb-del/DeepWriter/releases)。
+- 安全修复覆盖：当前主分支与 6.0.x 发行线。具体制品状态见 [Releases](https://github.com/jhdsmb-del/DeepWriter/releases)。
 - 安全基线：`scripts/gate1-security.ts` 权限与边界回归；任何修复不得放宽 fail-closed 语义。
 - 完整威胁模型见 [`docs/THREAT_MODEL.md`](docs/THREAT_MODEL.md)。
 

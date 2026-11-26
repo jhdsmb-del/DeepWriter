@@ -229,7 +229,9 @@ const MessageBubble = memo(function MessageBubble({ msg, onOpenSettings }: { msg
   const contentChars = useMemo(() => codePointLength(msg.content), [msg.content])
   const isLong = contentChars > LONG_LIMIT
   const limit = renderLimit ?? LONG_LIMIT
-  const shown = isLong && contentChars > limit ? takeCodePoints(msg.content, limit) : msg.content
+  const shown = useMemo(() => isLong && contentChars > limit ? takeCodePoints(msg.content, limit) : msg.content, [msg.content, isLong, contentChars, limit])
+  const fileRevision = useMemo(() => msg.status + ':' + msg.toolEvents.map(t => t.id + t.status).join(','), [msg.status, msg.toolEvents])
+  const fileScope = useMemo(() => sessionId ? { sessionId, messageId: msg.id, revision: fileRevision } : undefined, [sessionId, msg.id, fileRevision])
   const fullyShown = !isLong || contentChars <= limit
   const actionableRun = runForMsg ?? recoverableForMsg
   const failure = modelFailureNotice(recoverableForMsg?.errorCode, msg.error || recoverableForMsg?.errorMessage || runForMsg?.terminal?.error || (['paused', 'recovery_required'].includes(runForMsg?.status ?? '') ? runForMsg?.currentDetail : undefined))
@@ -309,7 +311,7 @@ const MessageBubble = memo(function MessageBubble({ msg, onOpenSettings }: { msg
       {failure ? <div className="error-banner model-failure" role="alert"><b>{failure.title}</b><p>{failure.detail}</p>{failure.settings && onOpenSettings && <button type="button" className="ghost-btn" onClick={onOpenSettings}>打开模型设置</button>}<button type="button" className="ghost-btn" onClick={() => openRunInspector(runId)}>查看任务详情</button></div> : msg.status === 'error' && msg.error && <div className="error-banner">{msg.error}</div>}
       <div className="msg-bubble">
         {msg.content ? (
-          <Suspense fallback={<div className="markdown-pending">{shown}</div>}><Markdown content={shown} fileScope={sessionId ? { sessionId, messageId: msg.id, revision: msg.status + ':' + msg.toolEvents.map(t => t.id + t.status).join(',') } : undefined} /></Suspense>
+          <Suspense fallback={<div className="markdown-pending">{shown}</div>}><Markdown content={shown} fileScope={fileScope} /></Suspense>
         ) : (
           <span className="placeholder-text">
             {failure ? '' : streaming ? (!activeRun ? '思考中…' : '') : waiting ? '' : '没有收到回复'}

@@ -18,7 +18,7 @@ function write(file, data) {
 function receipt(root, name) { const bytes = fs.readFileSync(path.join(root, name)); return { name, size: bytes.length, sha256: sha(bytes) } }
 function edit(file, task) { const json = JSON.parse(fs.readFileSync(file)); task(json); write(file, json) }
 async function fixture(task) {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'dw-cli-package-test-'))
+  const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'dw-cli-package-test-')))
   try {
     write(path.join(root, 'package.json'), { name: 'deepwriter', version: VERSION, license: 'MIT' })
     write(path.join(root, 'package-lock.json'), { version: VERSION, packages: { '': { version: VERSION }, 'node_modules/example': { version: '1.0.0', license: 'MIT' }, 'node_modules/not-shipped': { version: '2.0.0', license: 'MIT' } } })

@@ -95,6 +95,15 @@ const markdownComponents: Components = {
 }
 const markdownPlugins = [remarkGfm]
 
+// Parsing depends only on the text, not on receipt availability or run state.
+// LocalFile still consumes FileLinks through this memo boundary, so a newly
+// resolved/revoked link updates without rebuilding the entire Markdown tree.
+const MarkdownContent = memo(function MarkdownContent({ content }: { content: string }): React.ReactNode {
+  return <ReactMarkdown remarkPlugins={markdownPlugins} components={markdownComponents} urlTransform={localUrl}>
+    {content}
+  </ReactMarkdown>
+})
+
 const Markdown = memo(function Markdown({ content, fileScope }: { content: string; fileScope?: FileScope }): React.ReactNode {
   const candidates = useMemo(() => chatFileCandidates(content), [content])
   const [resolved, setResolved] = useState<{ key: string; files: ChatFileView[] }>({ key: '', files: [] })
@@ -113,9 +122,7 @@ const Markdown = memo(function Markdown({ content, fileScope }: { content: strin
   const context = useMemo(() => fileScope ? { scope: fileScope, files } : null, [fileScope, files])
   return (
     <FileLinks.Provider value={context}><div className="markdown-body">
-      <ReactMarkdown remarkPlugins={markdownPlugins} components={markdownComponents} urlTransform={localUrl}>
-        {content}
-      </ReactMarkdown>
+      <MarkdownContent content={content} />
     </div></FileLinks.Provider>
   )
 })

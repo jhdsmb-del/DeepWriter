@@ -13,7 +13,7 @@ import type { FileRefView } from '../main/fileRef'
 import type { DeepWriterProviderBundleV1, IpcResult, ImportPreview, ModelRecord, ModelConnectionResult, ProbeResult, ProfileRecord, ProviderRecord, ProviderRegistrySnapshot, StageProfileBindings, CredentialRefView, DiscoveryPreview, EffectiveProfile, PricingRecord, UserPricingInput } from '../shared/providerRegistry'
 import type { ContextManifestV2, ContextMode, ContextPinView, ContextPreferenceView, ContextPreviewV1, ContextSourceSnippetView, RollingSummaryV1 } from '../shared/contextV2'
 import type { GrillMeState, GrillMeOutline, GrillMeAttachmentStatus } from '../shared/grillMe'
-import type { GalgameAssetManifest, GalgameSdkEvidence, GalgameStudioSnapshot, GalgameStudioState } from '../shared/galgameStudio'
+import type { GalgameAssetManifest, GalgameSdkEvidence, GalgameStudioSnapshot, GalgameStudioState, GalgameStudioPlaytestResult } from '../shared/galgameStudio'
 import type { LongformWorkflowCreateInput, LongformWorkflowDraft, LongformWorkflowPublicMutationInput, LongformWorkflowSnapshot } from '../shared/longformWorkflow'
 import type { ExtensionSelection, ExtensionsSnapshot, ExtensionView } from '../shared/extensions'
 import type { DesktopChatStartResult, DesktopCostDecision } from '../shared/ipcSchemas'
@@ -131,6 +131,9 @@ const api = {
   galgameStudioConfirmPlan: (input: { studioId: string; branchHash: string; outlineHash?: string }): Promise<GalgameStudioState> => ipcRenderer.invoke('galgameStudio:confirmPlan', input),
   galgameStudioGenerate: (studioId: string): Promise<unknown> => ipcRenderer.invoke('galgameStudio:generate', { studioId }),
   galgameStudioLint: (studioId: string): Promise<unknown> => ipcRenderer.invoke('galgameStudio:lint', { studioId }),
+  galgameStudioPlaytestStart: (studioId: string): Promise<GalgameStudioPlaytestResult> => ipcRenderer.invoke('galgameStudio:playtestStart', { studioId }),
+  galgameStudioPlaytestStop: (studioId: string): Promise<GalgameStudioPlaytestResult> => ipcRenderer.invoke('galgameStudio:playtestStop', { studioId }),
+  galgameStudioPlaytestStatus: (studioId: string): Promise<GalgameStudioPlaytestResult> => ipcRenderer.invoke('galgameStudio:playtestStatus', { studioId }),
   galgameStudioRepair: (input: { studioId: string; maxRepairs?: number }): Promise<unknown> => ipcRenderer.invoke('galgameStudio:repair', input),
   onGalgameStudioProgress: (cb: (data: { studioId: string; progress: unknown }) => void): (() => void) => {
     const listener = (_e: unknown, data: { studioId: string; progress: unknown }): void => cb(data)

@@ -31,9 +31,10 @@ import { loadMemory } from './memory'
 import { createCheckpointStore, setCheckpointStore, getCheckpointStore, buildRollbackRoots } from './checkpoint'
 import { setPermissionManager } from './agentTools'
 import { importFile } from './fileImport'
-import { scanRenpyProject, lintRenpyProject, buildBranchGraph, checkRenpyResources, checkRenpyVariables, generateScenePatch, applyRenpyPatch, repairLoop, galgameApiFromEffectiveProfile } from './galgame'
+import { scanRenpyProject, lintRenpyProject, buildBranchGraph, checkRenpyResources, checkRenpyVariables, generateScenePatch, applyRenpyPatch, buildPatchPreview, repairLoop, galgameApiFromEffectiveProfile } from './galgame'
 import type { ScenePatch } from './galgame'
 import { GalgameStudioService, createRenpyProject, importRenpyProject } from './galgameStudio'
+import { GalgameStudioPlaytestService } from './galgameStudioPlaytest'
 import type { GalgameAssetManifest } from '../shared/galgameStudio'
 import { canLintRunForBusiness, runGalgameLintForRun } from './galgameEvidence'
 import { createCredentialRegistry, CredentialMissingError, type CredentialRef } from './credentialRegistry'
@@ -509,6 +510,23 @@ let activityBus: ReturnType<typeof createActivityBus> | null = null
 let providerRegistry: ProviderRegistryService | null = null
 let contextV2Service: ContextV2Service | null = null
 let galgameStudioService: GalgameStudioService | null = null
+const galgameStudioPlaytests = new GalgameStudioPlaytestService({
+  getStudio: studioId => requireGalgameStudio().get(studioId),
+  isAuthorizedDir,
+  confirmExecution: async ({ projectDir, projectName, sdkVersion }) => {
+    const result = await dialog.showMessageBox({
+      type: 'warning',
+      title: '运行此 Galgame 项目？',
+      message: `即将使用 ${sdkVersion ? `Ren’Py ${sdkVersion}` : 'Ren’Py SDK'} 执行「${projectName}」`,
+      detail: `项目：${projectDir}\n\n检查、修复检查及试玩会执行该项目中的游戏脚本和 Python 代码，并拥有当前用户的文件和网络权限。仅运行你信任的项目。本次打开应用期间首次执行此项目需要确认。`,
+      buttons: ['取消', '信任此项目并运行'],
+      defaultId: 0,
+      cancelId: 0,
+      noLink: true
+    })
+    return result.response === 1
+  }
+})
 let longformWorkflowAuthority: LongformWorkflowAuthority | null = null
 const longformWorkflowSubscriptions = new Map<number, Map<string, () => void>>()
 const galgameStudioDownloads = new Map<string, AbortController>()
@@ -526,6 +544,11 @@ function requireContextV2(): ContextV2Service {
 function requireGalgameStudio(): GalgameStudioService {
   if (!galgameStudioService) throw new IpcError('galgame_studio_unavailable', 'Galgame Studio 服务尚未就绪')
   return galgameStudioService
+}
+
+async function requireGalgameExecutionConsent(projectDir: string, projectName?: string, sdkVersion?: string): Promise<void> {
+  if (!(await isAuthorizedDir(projectDir))) throw new IpcError('path_not_authorized', '项目目录未授权，请通过目录选择器重新选择。')
+  if (!(await galgameStudioPlaytests.confirmProjectExecution(projectDir, projectName, sdkVersion))) throw new IpcError('project_execution_cancelled', '已取消执行项目代码。')
 }
 
 function requireLongformWorkflowAuthority(): LongformWorkflowAuthority {
@@ -1218,6 +1241,7 @@ function createFloatWindow(): BrowserWindow {
         recordShutdown('extension_host_close_unconfirmed', { error: error instanceof Error ? error.message : String(error) })
       }
       // 子进程树真实终止（childRegistry：跟踪/终止/等待；killed/remaining 由实际结果计算）
+      await galgameStudioPlaytests.shutdown()
       const children = activeChildProcesses()
       if (children.length > 0) {
         const r = await terminateChildProcesses()
@@ -1921,6 +1945,7 @@ registerIpc('galgame:lintRun', { schema: schemas.runsGetSchema }, async (_e, inp
 registerIpc('galgame:lint', { schema: schemas.renpyLintSchema }, async (_e, payload) => {
   if (!(await isAuthorizedDir(payload.projectDir))) throw new IpcError('path_not_authorized', '项目目录未授权：请先通过目录选择器选择')
   const s = await loadSettings()
+  await requireGalgameExecutionConsent(payload.projectDir)
   const run = tryStartRun({ sessionId: 'system', runId: `lint-${Date.now()}` })
   if (run) await run.setPhase('validating', "正在运行 Ren'Py 语法检查")
   const result = await lintRenpyProject(s.galgame.sdkPath, payload.projectDir)
@@ -1964,6 +1989,7 @@ registerIpc('renpy:repairLoop', { schema: schemas.renpyRepairLoopSchema, publicE
   const s = (await loadSettingsMetadata()).settings
   // sdkPath 一律以用户保存的设置为主进程唯一事实源，renderer 传入值不采用
   if (!s.galgame.sdkPath) throw new IpcError('sdk_not_configured', '未配置 RenPy SDK 路径（设置中通过选择器指定）')
+  await requireGalgameExecutionConsent(input.projectDir)
   const api = await resolveCreativeApi('polish')
   const maxRepairs = input.maxRepairs ?? 2
   return repairLoop({ projectDir: input.projectDir, sdkPath: s.galgame.sdkPath, api, maxRepairs })
@@ -1987,6 +2013,9 @@ registerIpc('galgameStudio:import', { schema: schemas.galgameStudioImportSchema 
 })
 registerIpc('galgameStudio:latest', { schema: schemas.galgameStudioSessionSchema }, async (_e, input) => requireGalgameStudio().latestForSession(input.sessionId))
 registerIpc('galgameStudio:get', { schema: schemas.galgameStudioIdSchema }, async (_e, input) => requireGalgameStudio().snapshot(input.studioId))
+registerIpc('galgameStudio:playtestStart', { schema: schemas.galgameStudioPlaytestSchema }, async (_e, input) => galgameStudioPlaytests.start(input.studioId))
+registerIpc('galgameStudio:playtestStop', { schema: schemas.galgameStudioPlaytestSchema }, async (_e, input) => galgameStudioPlaytests.stop(input.studioId))
+registerIpc('galgameStudio:playtestStatus', { schema: schemas.galgameStudioPlaytestSchema }, async (_e, input) => galgameStudioPlaytests.status(input.studioId))
 registerIpc('galgameStudio:openProject', { schema: schemas.galgameStudioIdSchema }, async (_e, input) => {
   const state = await requireGalgameStudio().get(input.studioId)
   if (!state) throw new IpcError('galgame_studio_not_found', 'Galgame Studio 工作台不存在')
@@ -2060,6 +2089,9 @@ registerIpc('galgameStudio:generate', { schema: schemas.galgameStudioIdSchema },
   return requireGalgameStudio().generate(input.studioId)
 })
 registerIpc('galgameStudio:lint', { schema: schemas.galgameStudioIdSchema }, async (_e, input) => {
+  const state = await requireGalgameStudio().get(input.studioId)
+  if (!state) throw new IpcError('galgame_studio_not_found', 'Galgame Studio 工作台不存在')
+  await requireGalgameExecutionConsent(state.projectDir, state.projectName, state.sdk?.version)
   return requireGalgameStudio().lintStudio(input.studioId)
 })
 registerIpc('galgameStudio:repair', { schema: schemas.galgameStudioRepairSchema, publicError: publicCreativeModelError }, async (_e, input) => {
@@ -2069,6 +2101,7 @@ registerIpc('galgameStudio:repair', { schema: schemas.galgameStudioRepairSchema,
   const settings = (await loadSettingsMetadata()).settings
   const sdkPath = state.sdk?.root ?? settings.galgame.sdkPath
   if (!sdkPath) throw new IpcError('sdk_not_configured', '未找到已验证的 Ren\'Py SDK')
+  await requireGalgameExecutionConsent(state.projectDir, state.projectName, state.sdk?.version)
   const registry = requireProviderRegistry()
   const bindings = registry.snapshot().bindings
   const profileId = bindings?.polishProfileId ?? bindings?.defaultProfileId
@@ -2995,6 +3028,7 @@ async function triggerGalgameLint(runId: string): Promise<{ ok: boolean; manifes
   if (!gate.ok) {
     throw new IpcError(gate.reason === 'run_not_found' ? 'run_not_found' : 'run_terminal', gate.reason === 'run_not_found' ? '业务 run 不存在' : '业务 run 已终态，不允许补充 evidence')
   }
+  await requireGalgameExecutionConsent(g.projectDir)
   await syncGalgameArtifacts(runId)
   return runGalgameLintForRun({
     runId,
@@ -4731,13 +4765,13 @@ if (!gotLock) {
         const registry = requireProviderRegistry()
         const bindings = registry.snapshot().bindings
         const profileId = bindings?.draftProfileId ?? bindings?.defaultProfileId
-        if (!profileId) return { status: 'skeleton_handoff', message: '可运行骨架已创建；请先在左下角选择写作模型，再继续 Galgame 制作。' }
+        if (!profileId) return { status: 'skeleton_handoff', message: '候选骨架已保留，项目原文件未改动；请先在左下角选择写作模型，再继续 Galgame 制作。' }
         const effective = registry.resolveForRequest(profileId)
         if (effective.provider.authStyle === 'bearer' && !effective.secret) {
-          return { status: 'skeleton_handoff', message: '可运行骨架已创建；当前写作模型缺少凭据，已保留交接状态。' }
+          return { status: 'skeleton_handoff', message: '候选骨架已保留，项目原文件未改动；当前写作模型缺少凭据，已保留交接状态。' }
         }
         const api = galgameApiFromEffectiveProfile(effective, (await loadSettingsMetadata()).settings.userPresetPrompt)
-        const generated = await generateScenePatch({ projectDir, sceneSpec, api })
+        const generated = await generateScenePatch({ projectDir, sceneSpec, api, studioProduction: true })
         if (!generated.ok || !generated.patch) {
           return { status: 'agent_failed', message: generated.error ?? 'Galgame Agent 未返回可应用的剧情补丁。' }
         }
@@ -4746,7 +4780,9 @@ if (!gotLock) {
         if (returned !== requested) {
           return { status: 'agent_failed', message: `Galgame Agent 目标文件不匹配：应为 ${requested}，收到 ${returned}` }
         }
-        const applied = await applyRenpyPatch({ projectDir, patch: generated.patch, sessionId })
+        const preview = await buildPatchPreview(projectDir, generated.patch)
+        if (!preview.ok || !preview.diff) return { status: 'agent_failed', message: preview.error ?? 'Galgame Agent 没有产生实际剧情改动。' }
+        const applied = await applyRenpyPatch({ projectDir, patch: generated.patch, sessionId, baseSha256: preview.baseSha256 })
         if (!applied.ok) {
           return { status: 'agent_failed', message: applied.error ?? 'Galgame Agent 补丁未能安全写入。' }
         }

@@ -38,13 +38,25 @@ function within(root: string, target: string): boolean {
   const rel = path.relative(root, target)
   return rel !== '' && rel !== '..' && !rel.startsWith('..' + path.sep) && !path.isAbsolute(rel)
 }
+// Windows 8.3 spellings can resolve to the same ordinary file. A legacy
+// receipt may use that spelling, but must never traverse a symlink or junction.
+async function legacyWindowsSpelling(target: string): Promise<boolean> {
+  if (process.platform !== 'win32') return false
+  let current = path.resolve(target)
+  while (true) {
+    if ((await fs.lstat(current)).isSymbolicLink()) return false
+    const parent = path.dirname(current)
+    if (parent === current) return true
+    current = parent
+  }
+}
 async function inspect(target: string, roots: string[], receipt: boolean, canonicalPath?: string, io = inspectionIO()): Promise<ChatFileTarget> {
   if (!chatFileCandidate(target)) return { ok: false, message: '不是可确认的本地文件路径' }
   try {
     const real = await io.realpath(target)
     // A receipt authorizes its exact original path, not a later symlink/junction
     // redirection. Workspace lookups additionally require real-root containment.
-    if (receipt && !same(real, canonicalPath ?? target)) return { ok: false, message: '文件路径已改变，请重新确认文件位置' }
+    if (receipt && !same(real, canonicalPath ?? target) && (canonicalPath !== undefined || !await legacyWindowsSpelling(target))) return { ok: false, message: '文件路径已改变，请重新确认文件位置' }
     if (!receipt && !(await Promise.all(roots.map(async root => {
       try { return within(await io.realpath(root), real) } catch { return false }
     }))).some(Boolean)) return { ok: false, message: '文件不在该任务授权目录内' }

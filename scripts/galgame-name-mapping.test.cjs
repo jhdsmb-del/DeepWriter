@@ -6,10 +6,12 @@ const { before, test } = require('node:test')
 const { crc32, deflateSync } = require('node:zlib')
 const esbuild = require('esbuild')
 const root = path.resolve(__dirname, '..')
+const {applyProductionFixture} = require('./fixtures/galgame-production.cjs')
 let api
 before(async () => {
   const built = await esbuild.build({ absWorkingDir: root, stdin: { resolveDir: root, loader: 'ts', contents: `
     export {buildGalgameNames,GalgameStudioService,createRenpyProject} from './src/main/galgameStudio';
+    export {applyRenpyPatch} from './src/main/galgame';
     export {inspectRenpySdk,runRenpyLint} from './src/main/renpySdk';
     export {grillMeOutlineHash} from './src/shared/grillMe';
   ` }, bundle: true, packages: 'external', alias: { electron: path.join(root, 'src/cli/host.ts') }, platform: 'node', format: 'cjs', write: false, logLevel: 'silent' })
@@ -69,7 +71,7 @@ test('two different PNGs and Chinese expressions keep their own images, first st
       sprites: [sprite('微笑图', '夏澄', '微笑'), sprite('惊讶图', '夏澄', '惊讶')].map((item, i) => ({ ...item, fileRefId: i === 0 ? 'smile' : 'surprise' })),
       backgrounds: [{ id: '门厅', name: '门厅', fileRefId: 'room' }], audio: []
     }
-    const names = api.buildGalgameNames(manifest)
+    let names = api.buildGalgameNames(manifest)
     const outline = { title: '门外的来信', premise: '夏澄在门口收到一封信。', targetChars: 1000, sections: [{ id: 'arrival', title: '开门', purpose: '辨认来信', targetChars: 1000, beats: ['从微笑变为惊讶'], sourceSlotIds: [] }] }
     const outlineHash = api.grillMeOutlineHash(outline)
     const grill = { stateId: 'grill', sessionId: 'name-fixture', status: 'confirmed', approvedOutline: outline, outlineHash }
@@ -81,12 +83,9 @@ test('two different PNGs and Chinese expressions keep their own images, first st
         sceneSpec = input.sceneSpec
         const target = path.join(input.projectDir, input.targetFile)
         generatedBeforeAgent = await fs.readFile(target, 'utf8')
+        names = api.buildGalgameNames(manifest, /^label (\w+)_start:$/m.exec(generatedBeforeAgent)[1])
         const smileTag = names.sprites.get('微笑图'), surpriseTag = names.sprites.get('惊讶图'), speaker = names.characters.get('夏澄')
-        // Deterministic local consumer of the actual Agent handoff. No model
-        // is called and this scaffold is not reported as a completed story.
-        const calls = `\n    show ${smileTag}\n    ${speaker} "我以为是你的回信。"\n    hide ${smileTag}\n    show ${surpriseTag}\n    ${speaker} "上面怎么是我的名字？"\n    hide ${surpriseTag}`
-        await fs.writeFile(target, generatedBeforeAgent.replace('    # DeepWriter Agent insertion point', '    # DeepWriter Agent insertion point' + calls))
-        return { status: 'skeleton_handoff', message: 'local naming fixture only' }
+        return applyProductionFixture(api, input, { extra: [`    show ${smileTag}`, `    ${speaker} "我以为是你的回信。"`, `    hide ${smileTag}`, `    show ${surpriseTag}`, `    ${speaker} "上面怎么是我的名字？"`, `    hide ${surpriseTag}`] })
       }
     })
     const studio = await service.create({ sessionId: 'name-fixture', project })
@@ -102,7 +101,7 @@ test('two different PNGs and Chinese expressions keep their own images, first st
     const state = await service.snapshot(studio.studioId)
     await service.confirmOutlineBranch(studio.studioId, { outlineHash, branchHash: state.branchHash })
     const result = await service.generate(studio.studioId)
-    assert.equal(result.production.status, 'skeleton_handoff')
+    assert.equal(result.production.status, 'agent_applied', result.error)
     const definitions = [...generatedBeforeAgent.matchAll(/^image (\w+) = "([^"]+)"$/gm)]
     assert.equal(new Set(definitions.map(match => match[1])).size, 3)
     const smileTag = names.sprites.get('微笑图'), surpriseTag = names.sprites.get('惊讶图')
@@ -119,8 +118,7 @@ test('two different PNGs and Chinese expressions keep their own images, first st
     assert.ok(sceneSpec.includes(`调用：scene ${names.backgrounds.get('门厅')}`))
     const script = await fs.readFile(result.generatedFile, 'utf8')
     assert.ok(script.includes(`show ${smileTag}`) && script.includes(`show ${surpriseTag}`))
-    // Only this newly created test project's entry point is updated.
-    await fs.writeFile(path.join(project.projectDir, 'game', 'script', 'script.rpy'), 'label start:\n    jump dw_start\n')
+    assert.equal(result.production.integration, 'connected')
     let lint = null
     if (candidate) {
       lint = await api.runRenpyLint(candidate.layout, project.projectDir)

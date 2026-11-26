@@ -1,4 +1,5 @@
 'use strict'
+const { exampleMembers } = require('./release-examples.cjs')
 
 // Assemble verified inputs, never build them or walk unrelated directories.
 const fs = require('node:fs')
@@ -91,6 +92,8 @@ async function collectCompleteInputs(options) {
   members.push(projectLicense)
   const docsDir = path.resolve(root, options.docsDir || 'docs')
   for (const name of DOCUMENTS) members.push(await member(docsDir, name, `docs/${name}`))
+  for (const name of exampleMembers(version)) members.push(await member(root, name, name))
+  if (exampleMembers(version).length) members.push(await member(docsDir, `RELEASE_NOTES_${version}.md`, `docs/RELEASE_NOTES_${version}.md`))
   members.push(await member(root, 'PACKAGE_README.md', 'README.md'))
   members.push(await member(root, 'SECURITY.md', 'SECURITY.md'))
 

@@ -1,4 +1,5 @@
 'use strict'
+const { exampleMembers } = require('./release-examples.cjs')
 
 // Assemble a local delivery from explicit, already-built desktop and CLI inputs.
 // Installation/rollout evidence belongs to the separate official-release route.
@@ -53,6 +54,7 @@ async function packageDesktopCli(options) {
     await add(file, `cli/${entry.name}`, entry)
   }
   await add(path.join(cliDir, 'cli-release.json'), 'cli/cli-release.json')
+  for (const name of exampleMembers(version)) await add(path.join(root, name), name)
   await add(path.join(root, 'PACKAGE_README.md'), 'README.md')
   await add(path.join(root, 'LICENSE'), 'LICENSE')
   await add(path.join(root, 'SECURITY.md'), 'SECURITY.md')

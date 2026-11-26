@@ -1,4 +1,5 @@
 'use strict'
+const { exampleMembers } = require('./release-examples.cjs')
 const { electronRuntimeNoticeNames } = require('./distribution-inventory.cjs')
 
 const fs = require('node:fs')
@@ -144,7 +145,7 @@ async function verifyCompleteDownload(directory, version, sourceCommit) {
   const bytes = fs.readFileSync(manifestFile)
   const manifest = JSON.parse(bytes)
   if (manifest.schemaVersion !== 1 || manifest.name !== 'deepwriter-complete' || manifest.complete !== true || manifest.version !== version || manifest.sourceCommit !== sourceCommit || !Array.isArray(manifest.files) || !manifest.files.length || manifest.files.length > 4096) throw new Error('Complete archive does not match the expected release')
-  const required = ['LICENSE', 'README.md', 'SECURITY.md', 'docs/QUICKSTART.md', 'docs/PRIVACY.md', 'docs/OPERATIONS.md', 'docs/CLI.md',
+  const required = [...exampleMembers(version), 'LICENSE', 'README.md', 'SECURITY.md', 'docs/QUICKSTART.md', 'docs/PRIVACY.md', 'docs/OPERATIONS.md', 'docs/CLI.md',
     'docs/VALIDATION.md', 'docs/LICENSE_DECISION.md', 'docs/EXTENSIONS_RESEARCH.md', 'docs/PROVIDER_EXPANSION_RESEARCH.md',
     `desktop/DeepWriter-${version}-x64-setup.exe`, `desktop/DeepWriter-${version}-x64-portable.exe`,
     'desktop/release.json', 'desktop/SHA256SUMS.txt', 'desktop/installation-verification.json',

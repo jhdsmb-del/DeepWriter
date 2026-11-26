@@ -1,0 +1,30 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="720" viewBox="0 0 1280 720">
+<title>末班渡船：江边检票亭</title>
+<defs>
+ <linearGradient id="sky" x2="0" y2="1" gradientUnits="objectBoundingBox"><stop stop-color="#243448"/><stop offset=".59" stop-color="#748c9a"/><stop offset="1" stop-color="#d5b99e"/></linearGradient>
+ <linearGradient id="water" x2="0" y2="1"><stop stop-color="#69848c"/><stop offset=".48" stop-color="#455b68"/><stop offset="1" stop-color="#24323f"/></linearGradient>
+ <linearGradient id="glass" x2="1" y2=".8"><stop stop-color="#f9df9b"/><stop offset="1" stop-color="#bd7c4c"/></linearGradient>
+ <radialGradient id="lamp"><stop stop-color="#ffebac" stop-opacity=".95"/><stop offset=".12" stop-color="#ffd380" stop-opacity=".54"/><stop offset="1" stop-color="#ffca77" stop-opacity="0"/></radialGradient>
+ <pattern id="ripples" width="165" height="34" patternUnits="userSpaceOnUse"><path d="M4 10h33m16 0h5m47 18h26m7 0h10" stroke="#c0c3b2" stroke-width="1" opacity=".23" stroke-linecap="round"/></pattern>
+</defs>
+<path fill="url(#sky)" d="M0 0h1280v410H0z"/>
+<circle cx="760" cy="141" r="31" fill="#e6debd" opacity=".89"/>
+<path fill="#71848c" d="M0 310l70-29 151-18 92 22 130-52 98 12 76-22 131 46 94-28 73 30 94-11 135 39 136-15v97H0z"/>
+<path fill="#546e79" d="m0 322 140-31 144 18 151-21 98 24 166-23 138 17 116-14 182 27 145-8v75H0z"/>
+<g fill="#475d67"><path d="M453 335v-18h15v18m13 0v-27h25v27m83 0v-16h45v16m9 0v-23h22v23m159 0v-29h15v29m5 0v-16h28v16m18 0v-20h44v20"/><path d="M0 331q262-1 523 4t757-2v35H0z"/></g>
+<g fill="#f5ca88"><circle cx="486" cy="319" r="2"/><circle cx="637" cy="331" r="2"/><circle cx="835" cy="319" r="2"/><circle cx="906" cy="320" r="2"/></g>
+<path fill="url(#water)" d="M0 346h1280v374H0z"/><path fill="url(#ripples)" d="M0 350h1280v370H0z"/>
+<g stroke="#ddbd91" opacity=".41" stroke-linecap="round"><path d="M824 357h23m-33 8h44m-33 8h16m-34 17h56m-24 15h28m-46 11h16"/><path d="M477 352h21m-28 8h33m-15 12h22"/></g>
+<!-- The last ferry, still tied up -->
+<g><path fill="#2a3c46" d="M28 424h345l-37 31H78z"/><path fill="#384e57" d="M64 412h257l28 13H61z"/><path fill="#344751" d="M107 375h166v37H99z"/><path fill="#252f39" d="M94 372h189l6 5H91z"/><path fill="#b99970" d="M111 383h20v17h-24zm27 0h21v17h-21zm29 0h20v17h-20zm29 0h21v17h-21zm29 0h22v17h-22z"/><path d="M60 456q132 8 284-1" fill="none" stroke="#a6b4ae" opacity=".55"/></g>
+<path fill="#29323a" d="m0 588 751-88 529-4v224H0z"/><path fill="#546069" d="M0 591l750-88 530-4v6l-530 4L0 602z"/>
+<g stroke="#42494b" stroke-width="2"><path d="M58 720 684 509m-385 211 456-211m-208 211 282-211m-96 211 175-211m-18 211 107-211"/></g>
+<!-- Ticket booth, its light falls on an otherwise empty quay -->
+<path fill="#1e2931" d="M899 279l256-20 105 34v211l-101 12-256-10z"/><path fill="#32414a" d="m1156 265 95 30v202l-95 13z"/><path fill="#1e2931" d="m868 275 286-28 124 37-22 17-100-26-278 25z"/>
+<path fill="#665748" d="m920 316 211-14v119l-211 5z"/><path fill="url(#glass)" d="m927 323 92-6v99l-92 3zm101-7 95-6v102l-95 4z"/>
+<path fill="#3b4346" d="m1171 318 58 16v70l-58-6z"/><path fill="#6a7472" d="m1176 326 49 12v58l-49-6z"/>
+<path fill="#2a353c" d="m913 425 223-6 7 7-231 8z"/><path d="M1024 373v42" stroke="#9b7956" stroke-width="2"/>
+<g><path d="M851 501V220q0-22 23-22h16" stroke="#26343b" stroke-width="5" fill="none"/><path d="m876 200 32-1 7 13-47 1z" fill="#28353c"/><circle cx="891" cy="214" r="49" fill="url(#lamp)"/><path d="M882 214h18" stroke="#ffe0a4" stroke-width="4" stroke-linecap="round"/></g>
+<g fill="#202b32"><path d="M34 535h9v59h-9zm356-43h9v55h-9zm249-26h8v52h-8z"/></g>
+<path d="M38 546q171 39 356-43 118 22 249-26" stroke="#26343a" stroke-width="4" fill="none"/>
+</svg>

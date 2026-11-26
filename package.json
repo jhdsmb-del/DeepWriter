@@ -1,6 +1,6 @@
 {
   "name": "deepwriter",
-  "version": "5.0.1",
+  "version": "6.0.0",
   "description": "文本写作助手：对话、长文写作、稿件审校与文件处理",
   "main": "out/main/index.js",
   "author": "deepwriter",
@@ -11,6 +11,10 @@
     "test:agent-quality": "node --test scripts/writing-form.test.cjs scripts/agent-evidence-retrieval.test.cjs scripts/writer-form-contract.test.cjs",
     "test:work-steering": "node --test scripts/work-steering.test.cjs scripts/cli-work-steering.test.cjs",
     "test:workspace-permissions": "esbuild scripts/workspace-permissions.test.ts --bundle --format=esm --platform=node --packages=external --outfile=out/workspace-permissions.test.mjs --alias:electron=./scripts/electron-test-shim.ts && node --test out/workspace-permissions.test.mjs",
+    "test:v600": "node --test scripts/galgame-production.test.cjs scripts/galgame-routes-cli.test.cjs && npm run test:galgame-playtest",
+    "test:galgame-playtest": "esbuild scripts/galgame-playtest.test.ts --bundle --platform=node --format=esm --packages=external --alias:electron=./scripts/fixtures/galgame-playtest-electron.ts --outfile=out/galgame-playtest.test.mjs && node --test out/galgame-playtest.test.mjs",
+    "test:studio-ui": "node --test scripts/desktop-galgame-studio.test.cjs",
+    "perf:transcript": "node --test scripts/desktop-transcript-responsiveness.test.cjs",
     "perf:desktop-panels": "node --test scripts/desktop-panel-responsiveness.test.cjs",
     "perf:agent-start": "node --test scripts/agent-start-latency.test.cjs",
     "perf:file-actions": "node --test scripts/chat-file-latency.test.cjs",

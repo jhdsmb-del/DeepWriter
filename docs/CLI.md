@@ -2,6 +2,17 @@
 
 DeepWriter CLI 支持联网问答、工作目录内的文件/命令任务，以及持续对话、逐问采访、连续长文和任务恢复。它与桌面共用引擎、SQLite、文件/命令权限及检查点，独立运行，不启动 Electron；会话、配置和密钥与桌面分开保存。
 
+## 读 Ren’Py 剧情路线
+
+在完整包解压目录运行：
+
+```powershell
+.\cli\deepwriter.cmd galgame routes .\examples\last-ferry
+.\cli\deepwriter.cmd galgame routes .\examples\last-ferry --json
+```
+
+输出包括节点所在的脚本与行号，例如 `「敲铃应他」 → bells`。把示例目录换成自己的项目即可。读取路线不运行游戏，也不用连接模型。脚本含缺失的静态跳转目标时，命令输出诊断并以非零状态退出。
+
 ## 三步开始
 
 Windows 完整包包含同版桌面、`cli/deepwriter.cmd` 和 `cli/runtime/node.exe`，无需另装 Node 或 npm。完整解压后在解压目录打开 PowerShell，并保留整个 `cli` 目录。已发布的包见 [Releases](https://github.com/jhdsmb-del/DeepWriter/releases)。

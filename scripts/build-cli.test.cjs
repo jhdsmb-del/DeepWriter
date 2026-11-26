@@ -26,7 +26,7 @@ function copyRuntimeDependency(name, from, target, seen = new Set()) {
   for (const dependency of Object.keys(pkg.dependencies || {})) copyRuntimeDependency(dependency, directory, target, seen)
 }
 async function fixture(task) {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'dw-cli-build-test-'))
+  const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'dw-cli-build-test-')))
   try {
     fs.mkdirSync(path.join(root, 'src/cli'), { recursive: true })
     fs.writeFileSync(path.join(root, 'src/cli/main.ts'), 'console.log("synthetic fixture")\n')

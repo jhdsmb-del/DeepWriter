@@ -9,7 +9,7 @@
 可直接下载公开发行包。将版本号换成 [Releases](https://github.com/jhdsmb-del/DeepWriter/releases) 上提供完整包的版本：
 
 ```powershell
-$version = Read-Host "版本号（例如 5.0.1）"
+$version = Read-Host "版本号（例如 6.0.0）"
 gh release download "v$version" --repo jhdsmb-del/DeepWriter --pattern "DeepWriter-$version-complete.zip*" --dir ".\downloads\$version"
 ```
 

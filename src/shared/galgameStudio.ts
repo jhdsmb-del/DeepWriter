@@ -30,6 +30,12 @@ export const GALGAME_STUDIO_STAGES = [
 export type GalgameStudioStage = (typeof GALGAME_STUDIO_STAGES)[number]
 export type GalgameStudioProjectMode = 'create' | 'import'
 
+/** Main-process-owned live process state; never restored from Studio JSON. */
+export interface GalgameStudioPlaytestResult {
+  status: 'running' | 'stopped' | 'failed'
+  message?: string
+}
+
 export interface GalgameSdkEvidence {
   source: 'explicit' | 'managed' | 'discovered'
   root: string
@@ -128,10 +134,12 @@ export interface GalgameStudioState {
   outlineBranchConfirmed: boolean
   generatedFile: string | null
   generatedAt: number | null
+  /** Exact launcher text owned by Studio, never a license to replace edits. */
+  entrypointContent?: string
   /**
-   * The deterministic project scaffold is intentionally separate from the
-   * production Agent result.  A scaffold can be linted/repaired, but it must
-   * never be presented as an AI-produced story.
+   * Candidate scaffolds stay outside the active project. Production evidence
+   * records actual story publication; lint and mainline integration are
+   * separate acceptance conditions.
    */
   production: GalgameProductionHandoff | null
   lint: GalgameStudioLintState | null
@@ -147,6 +155,12 @@ export interface GalgameProductionHandoff {
   message: string
   requestedAt: number
   completedAt: number | null
+  entryLabel?: string
+  entryFile?: string
+  integration?: 'connected' | 'required'
+  /** Frozen creation inputs used only to make repeat Generate idempotent. */
+  outlineHash?: string
+  assetsKey?: string
 }
 
 export interface GalgameStudioLintState {
@@ -164,6 +178,11 @@ export interface GalgameStudioSnapshot {
   sdk: { status: 'missing' | 'invalid' | 'ready'; source?: 'explicit' | 'managed' | 'discovered'; version?: string; message?: string }
   assetCheck: GalgameAssetCheck | null
   branchHash: string | null
+  branchGraph?: {
+    labels: Array<{ name: string; file: string; line: number; incoming: string[]; outgoing: string[] }>
+    edges: Array<{ from: string; to: string; type: 'jump' | 'call' | 'menu' | 'return'; file: string; line: number; choice?: string }>
+    diagnostics: Array<{ severity: 'error' | 'warning'; code: string; message: string; file: string | null; line: number | null }>
+  } | null
 }
 
 export interface GalgameStudioGateResult {
@@ -218,7 +237,7 @@ export function nextGalgameStudioStage(state: GalgameStudioState): GalgameStudio
   if (!state.grillConfirmed) return 'grill'
   if (!state.outlineBranchConfirmed) return 'outline/branch_confirmed'
   if (!state.generatedFile || state.production?.status !== 'agent_applied') return 'generate'
-  if (!state.lint?.ok || !state.lint.verified) return 'lint/repair'
+  if (!state.lint?.ok || !state.lint.verified || state.production.integration === 'required') return 'lint/repair'
   return 'done'
 }
 
@@ -231,7 +250,7 @@ export function studioGate(state: GalgameStudioState, action: GalgameStudioStage
     generate: (s) => s.sdkReady && s.assetsReady && s.grillConfirmed && s.outlineBranchConfirmed && Boolean(s.outlineHash) && Boolean(s.branchHash),
     lint: (s) => Boolean(s.generatedFile) && s.production?.status === 'agent_applied' && s.stage === 'lint/repair',
     'lint/repair': (s) => Boolean(s.generatedFile) && s.production?.status === 'agent_applied',
-    done: (s) => Boolean(s.generatedFile) && s.production?.status === 'agent_applied' && Boolean(s.lint?.ok) && s.lint?.verified === true
+    done: (s) => s.production?.integration !== 'required' && Boolean(s.generatedFile) && s.production?.status === 'agent_applied' && Boolean(s.lint?.ok) && s.lint?.verified === true
   }
   const check = required[action]
   if (!check) return { ok: false, stage: nextGalgameStudioStage(state), error: '未知工作台阶段' }
