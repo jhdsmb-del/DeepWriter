@@ -566,15 +566,15 @@ export const agentTools: ToolDef[] = [
   },
   {
     name: 'search_files',
-    description: `查文本或${readableDocuments}原文。${pdfHint}指定文件直接查；目录默认只搜文本，搜文档时显式documents:true并用path/include限定资料。找原话用literal:true。返回片段和read_file可回读的cursor；文档位置指提取文本，不是页码，不做OCR。`,
+    description: `查文本或${readableDocuments}原文。${pdfHint}指定文件直接查；目录默认只搜文本，搜文档时显式documents:true并用path/include限定资料。命中附read_file可回读的cursor；文档行列指提取文本，不是页码。`,
     parameters: {
       type: 'object',
       properties: {
-        pattern: { type: 'string', description: '搜索词，最多500个UTF-16单位。默认正则逐行只查前4000单位；literal:true按原文区分大小写，可跨行，LF/CRLF也按原样匹配，不解释正则标点' },
-        literal: { type: 'boolean', description: 'true：精确原文匹配；省略或false：沿用不区分大小写的正则表达式' },
-        path: { type: 'string', description: '明确文本/文档文件或选定的资料根目录，默认工作目录；目录默认跳过隐藏项、依赖/构建目录及链接' },
-        documents: { type: 'boolean', description: '在指定目录内同时搜索支持的文档，默认false。指定单个文档时无需开启。' },
-        include: { type: 'string', description: '可选相对glob限定资料集，与find_files同语义：*一段、?一个Unicode字符、**任意层目录，无斜杠时各层按文件名，不区分大小写；[]/+按原样，不含..，例如 资料/**/*.docx。不改变权限；include本身不启用目录文档提取，仍须documents:true' },
+        pattern: { type: 'string', description: '最多500个UTF-16单位。默认逐行正则，忽略大小写，查每行前4000单位。' },
+        literal: { type: 'boolean', description: '找原话用true：区分大小写，可跨行，标点和换行按原样匹配。' },
+        path: { type: 'string', description: '文件或目录，默认工作目录。跳过隐藏项、依赖、构建目录和链接。' },
+        documents: { type: 'boolean', description: '目录也搜文档；默认false。' },
+        include: { type: 'string', description: '相对glob，如资料/**/*.docx。*段内、?单字符、**跨目录；无斜杠匹配各级文件名，忽略大小写。' },
         max_results: { type: 'number', description: '最多返回条数，默认 50' }
       },
       required: ['pattern']
