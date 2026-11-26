@@ -1,0 +1,42 @@
+# Source regressions run on all three platforms; desktop release support is Windows.
+# Default checks use a local model fixture and require no live API key.
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  ci:
+    name: CI (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, macos-latest, ubuntu-latest]
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies (npm ci)
+        run: npm ci
+
+      - name: Check (types, regression gates, docs and production build)
+        run: npm run check
+
+      - name: E2E build (CI-01：从干净 out 构建入口)
+        run: npm run e2e:build
+
+      - name: Electron E2E (supported Windows desktop)
+        if: runner.os == 'Windows'
+        run: node out/e2e.mjs
+        shell: bash

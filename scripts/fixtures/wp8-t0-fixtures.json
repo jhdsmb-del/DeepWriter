@@ -1,0 +1,24 @@
+{
+  "schemaVersion": 1,
+  "fixtureId": "wp8-t0-deterministic-pressure-story",
+  "status": "synthetic",
+  "qualityClaims": "advisory_only",
+  "realRequests": 0,
+  "scales": [
+    { "id": "P10", "sceneCount": 20, "targetChars": 10000, "constraintCount": 30, "gapCount": 3 },
+    { "id": "P30", "sceneCount": 40, "targetChars": 30000, "constraintCount": 60, "gapCount": 10 },
+    { "id": "P100", "sceneCount": 100, "targetChars": 100000, "constraintCount": 100, "gapCount": 30 },
+    { "id": "L20", "sceneCount": 20, "targetChars": 20000, "constraintCount": 30, "gapCount": 3 }
+  ],
+  "coverage": [
+    "scenes",
+    "facts",
+    "gaps",
+    "aliases",
+    "time_jumps",
+    "retraction",
+    "branch",
+    "rebuild",
+    "warm_append"
+  ]
+}

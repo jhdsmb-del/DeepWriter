@@ -1,0 +1,16 @@
+name: 改进建议
+description: 说明桌面 Agent 的具体使用问题
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: 使用场景与当前问题
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: 建议的行为
+      description: 尽量说明如何简化现有流程，以及是否可复用当前能力。
+    validations:
+      required: true

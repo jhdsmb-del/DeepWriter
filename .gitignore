@@ -1,0 +1,60 @@
+# dependencies
+node_modules/
+
+# build output
+out/
+dist/
+/dist-r*/
+release/
+
+# TypeScript build info
+*.tsbuildinfo
+
+# user data, databases, caches, logs, secrets
+.deepwriter-cli/
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
+*.sqlite
+*.sqlite3
+*.sqlite-journal
+*.sqlite-wal
+*.sqlite-shm
+*.jsonl
+*.log
+*.key
+*.pem
+*.pfx
+*.p12
+.env
+.env.*
+!.env.example
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.swp
+
+# local scratch
+tmp/
+scratch/
+e2e-screenshots/
+/userData/
+/work/
+
+# local desktop artifacts and package-manager files
+/DeepWriter-*.exe
+/pnpm-lock.yaml
+/pnpm-workspace.yaml
+
+# 生成物（重建：node scripts/make-review-bundle.js；头部 commit=生成时 HEAD）
+docs/code-bundle.txt
+
+# Generated validation output; release metadata stays versioned
+/docs/*-report*/
+/docs/*-evidence/
+/docs/repro-*-results.json
+/docs/BENCHMARK_R46.md

@@ -1,0 +1,13 @@
+{
+  "schemaVersion": 1,
+  "profileId": "deepseek-v41-flash-cny-offpeak-20261003",
+  "providerId": "deepseek",
+  "endpointOrigins": ["https://api.deepseek.com"],
+  "currency": "CNY",
+  "unit": "per-1M-tokens",
+  "source": "DeepSeek 官方中文定价，2026-10-03 周六空闲档；仅本轮最多 30 分钟的授权测试，非通用实时价格表。https://api-docs.deepseek.com/zh-cn/quick_start/pricing/",
+  "updatedAt": "2026-10-03",
+  "prices": [
+    { "model": "deepseek-flash", "inputPer1M": 1, "outputPer1M": 4, "cacheHitPer1M": 0.02 }
+  ]
+}

@@ -1,0 +1,29 @@
+name: Bug 报告
+description: 报告可复现的桌面或运行问题
+labels: [bug]
+body:
+  - type: input
+    id: version
+    attributes:
+      label: 版本与平台
+      placeholder: 例如 1.2.5 Beta，Windows 11 x64，安装版
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: 复现步骤
+      description: 从启动应用开始描述，注明模型与权限档位；不要包含 API Key。
+    validations:
+      required: true
+  - type: textarea
+    id: behavior
+    attributes:
+      label: 预期与实际结果
+    validations:
+      required: true
+  - type: textarea
+    id: evidence
+    attributes:
+      label: 脱敏日志或截图
+      description: 请移除 Key、私人文件内容和用户数据。

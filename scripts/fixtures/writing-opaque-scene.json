@@ -1,0 +1,47 @@
+{
+  "schemaVersion": 1,
+  "contractId": "cb475c80e9d83508:scene:s1:r1",
+  "sceneId": "scene:s1",
+  "sectionId": "s1",
+  "revision": 1,
+  "order": 1,
+  "title": "值班室：钥匙与手电",
+  "objective": "建立时间、地点、人物关系与核心物品归属，锚定两人各自的目标和克制试探的基调。",
+  "activeCharacterIds": [],
+  "characterIds": [],
+  "desire": "林舟取回旧海难档案附页，揭示顾岚隐瞒那晚一次错误开闸记录；附页最终被保留。",
+  "obstacle": "顾岚要关停灯塔；林舟要取回旧海难档案附页。顾岚隐瞒那晚一次错误开闸记录。",
+  "conflict": "顾岚要关停灯塔；林舟要取回旧海难档案附页。顾岚隐瞒那晚一次错误开闸记录。",
+  "expectedTurn": "顾岚说明她来关停灯塔，林舟说明他要取回旧海难档案附页；两人都没有移动，钥匙仍留在柜锁上，手电仍在桌上。",
+  "reveal": "顾岚说明她来关停灯塔，林舟说明他要取回旧海难档案附页；两人都没有移动，钥匙仍留在柜锁上，手电仍在桌上。",
+  "requiredBeatIds": ["scene:s1:beat:1", "scene:s1:beat:2", "scene:s1:beat:3"],
+  "requiredFactIds": ["goal", "conflict", "characters", "setting", "mustKeep"],
+  "forbiddenFactIds": [],
+  "mustHappen": [
+    "23:00，林舟推开值班室铁门，手电光扫过控制台和墙上的旧海图，顾岚站在档案柜前，钥匙插在锁孔中。",
+    "顾岚没有拔出钥匙，只把身体侧向档案柜；林舟将手电放在桌上，光柱偏向地面，两人之间留出一步距离。",
+    "顾岚说明她来关停灯塔，林舟说明他要取回旧海难档案附页；两人都没有移动，钥匙仍留在柜锁上，手电仍在桌上。"
+  ],
+  "mustNotHappen": [],
+  "handoff": "承接下一场“档案室：柜锁与附页”：通过具体行动推进附页的查找，展示顾岚对档案柜的掌控和林舟的观察，埋下错误开闸记录的线索。",
+  "threadActions": [{"threadId":"thread:s1","action":"open"},{"threadId":"thread:s1","action":"close"}],
+  "requiredBeatEvidence": [
+    {"beatId":"scene:s1:beat:1","source":"23:00，林舟推开值班室铁门，手电光扫过控制台和墙上的旧海图，顾岚站在档案柜前，钥匙插在锁孔中。","actor":["钥匙插在锁孔中。"],"action":[],"object":[],"location":[],"result":[],"time":["在档案柜前","在锁孔中"],"negation":false,"modality":"actual","actuality":"asserted_actual","assertion":"asserted","agent":["钥匙插在锁孔中。"],"patient":[],"sourceRole":[],"recipient":[],"beneficiary":[],"eventGroups":[]},
+    {"beatId":"scene:s1:beat:2","source":"顾岚没有拔出钥匙，只把身体侧向档案柜；林舟将手电放在桌上，光柱偏向地面，两人之间留出一步距离。","actor":["两人"],"action":[],"object":[],"location":[],"result":[],"time":["在桌上"],"negation":true,"modality":"actual","actuality":"negated","assertion":"negated","agent":["两人"],"patient":[],"sourceRole":[],"recipient":[],"beneficiary":[],"eventGroups":[]},
+    {"beatId":"scene:s1:beat:3","source":"顾岚说明她来关停灯塔，林舟说明他要取回旧海难档案附页；两人都没有移动，钥匙仍留在柜锁上，手电仍在桌上。","actor":["两人"],"action":[],"object":[],"location":[],"result":[],"time":["在柜锁上","在桌上"],"negation":true,"modality":"actual","actuality":"negated","assertion":"negated","agent":["两人"],"patient":[],"sourceRole":[],"recipient":[],"beneficiary":[],"eventGroups":[]}
+  ],
+  "expectedStateChanges": [
+    {"key":"scene:s1:objective","description":"完成本场目标：建立时间、地点、人物关系与核心物品归属，锚定两人各自的目标和克制试探的基调。"},
+    {"key":"scene:s1:handoff","description":"承接下一场“档案室：柜锁与附页”：通过具体行动推进附页的查找，展示顾岚对档案柜的掌控和林舟的观察，埋下错误开闸记录的线索。"}
+  ],
+  "targetChars": {"min":1020,"ideal":1200,"max":1380},
+  "acceptanceCriteria": [
+    "正文提供可观察证据：23:00，林舟推开值班室铁门，手电光扫过控制台和墙上的旧海图，顾岚站在档案柜前，钥匙插在锁孔中。",
+    "正文提供可观察证据：顾岚没有拔出钥匙，只把身体侧向档案柜；林舟将手电放在桌上，光柱偏向地面，两人之间留出一步距离。",
+    "正文提供可观察证据：顾岚说明她来关停灯塔，林舟说明他要取回旧海难档案附页；两人都没有移动，钥匙仍留在柜锁上，手电仍在桌上。",
+    "正文结束后能承接：承接下一场“档案室：柜锁与附页”：通过具体行动推进附页的查找，展示顾岚对档案柜的掌控和林舟的观察，埋下错误开闸记录的线索。"
+  ],
+  "sourceIds": ["goal","conflict","characters","setting","mustKeep"],
+  "outlineHash": "cb475c80e9d83508",
+  "frozenHash": "194aa9971d1189303d46f162260c77df7222d75b68cffb56e97426346de99e8f"
+}

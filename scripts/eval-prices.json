@@ -1,0 +1,13 @@
+{
+  "schemaVersion": 1,
+  "profileId": "deepseek-v4-flash-reference",
+  "providerId": "deepseek",
+  "endpointOrigins": ["https://api.deepseek.com"],
+  "currency": "CNY",
+  "unit": "per-1M-tokens",
+  "source": "参照 DeepSeek 官方定价页常见档位，显式标注为参考配置，非实时抓取",
+  "updatedAt": "2026-08-16",
+  "prices": [
+    { "model": "deepseek-v4-flash", "inputPer1M": 2.0, "outputPer1M": 8.0, "cacheHitPer1M": 0.4 }
+  ]
+}

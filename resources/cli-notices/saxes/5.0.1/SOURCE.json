@@ -1,0 +1,46 @@
+{
+  "schemaVersion": 1,
+  "package": {
+    "name": "saxes",
+    "version": "5.0.1",
+    "license": "ISC",
+    "integrity": "sha512-5LBh1Tls8c9xgGjw3QrMwETmTMVk0oFgvrFSvWx62llR2hcEInrKNZ2GZCCuuy2lvWrdl5jhbpeqc5hRYKFOcw=="
+  },
+  "sourceCommit": "6ef6a275b20f19cb67808daf0d8f64e06aaf5b0e",
+  "sourceUrl": "https://raw.githubusercontent.com/lddubeau/saxes/6ef6a275b20f19cb67808daf0d8f64e06aaf5b0e/LICENSE",
+  "upstreamManifest": {
+    "sourceUrl": "https://raw.githubusercontent.com/lddubeau/saxes/6ef6a275b20f19cb67808daf0d8f64e06aaf5b0e/package.json",
+    "name": "UPSTREAM.package.json",
+    "size": 2828,
+    "sha256": "d6614eb3d8f62608adea8fbfde612210e6deeb45c073078d1661c92f575e763f"
+  },
+  "notice": {
+    "name": "LICENSE",
+    "size": 3011,
+    "sha256": "0fac2374380621b22e6b50451057721a9c52935b02d16d106a9f04897f061d0e"
+  },
+  "retrievedAt": "2026-11-25T06:12:30.184Z",
+  "publishedSource": {
+    "tag": "v5.0.1",
+    "tagObject": "8c687ae8e2b9814da0928fff0faae1887a950200",
+    "commit": "6ef6a275b20f19cb67808daf0d8f64e06aaf5b0e",
+    "sourceUrl": "https://github.com/lddubeau/saxes/tree/6ef6a275b20f19cb67808daf0d8f64e06aaf5b0e",
+    "registryUrl": "https://registry.npmjs.org/saxes/5.0.1",
+    "tarballUrl": "https://registry.npmjs.org/saxes/-/saxes-5.0.1.tgz",
+    "tarballIntegrity": "sha512-5LBh1Tls8c9xgGjw3QrMwETmTMVk0oFgvrFSvWx62llR2hcEInrKNZ2GZCCuuy2lvWrdl5jhbpeqc5hRYKFOcw==",
+    "tarballFiles": [
+      "package/saxes.js",
+      "package/package.json",
+      "package/saxes.js.map",
+      "package/README.md",
+      "package/saxes.d.ts"
+    ]
+  },
+  "retrievedVia": {
+    "notice": "https://api.github.com/repos/lddubeau/saxes/contents/LICENSE?ref=6ef6a275b20f19cb67808daf0d8f64e06aaf5b0e",
+    "upstreamManifest": "https://api.github.com/repos/lddubeau/saxes/contents/package.json?ref=6ef6a275b20f19cb67808daf0d8f64e06aaf5b0e",
+    "tagRef": "https://api.github.com/repos/lddubeau/saxes/git/ref/tags/v5.0.1",
+    "tagObject": "https://api.github.com/repos/lddubeau/saxes/git/tags/8c687ae8e2b9814da0928fff0faae1887a950200"
+  },
+  "scope": "The official published 5.0.1 tarball contains five files and omits LICENSE. This is the unchanged complete root LICENSE at the upstream v5.0.1 tag commit. Its package.json declares saxes 5.0.1 and ISC; removing only the private field exactly reproduces the published package.json, as specified by its copy script. Both ISC copyright notices and the upstream historical Mathias Bynens MIT notice are retained in full. This supplement is not claimed to have shipped in the npm tarball and is not reused for another version."
+}

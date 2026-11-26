@@ -1,0 +1,327 @@
+{
+  "schemaVersion": 1,
+  "scope": "fixed-npm-package-notice-supplement",
+  "legalCompliance": "not-assessed",
+  "copyrightAudit": "not-assessed",
+  "nativeGraphCoverage": "not-assessed",
+  "transformer": {
+    "implementation": "app-builder-lib/out/fileTransformer.js",
+    "version": "26.15.3",
+    "sha256": "0c4e855d5c9c6682a165c78dfc7206f35b17fd57321627cbb5259dce433c6ec9",
+    "options": {
+      "removePackageScripts": true,
+      "removePackageKeywords": true
+    }
+  },
+  "packages": [
+    {
+      "name": "brotli",
+      "version": "1.3.3",
+      "packageLocation": "node_modules/brotli",
+      "resolved": "https://registry.npmjs.org/brotli/-/brotli-1.3.3.tgz",
+      "integrity": "sha512-oTKjJdShmDuGW94SyyaoQvAjf30dZaHnjJ8uAF+u2/vGJkJbJPJAT1gDiOJP5v1Zb6f9KEyW/1HpuaWIXtGHPg==",
+      "publishedTarball": {
+        "sourceUrl": "https://registry.npmjs.org/brotli/-/brotli-1.3.3.tgz",
+        "size": 416657,
+        "sha256": "3c7c260f6263df95fee49a9119e9fd21227d628b6c9d99080a75edfd9e2bdb24",
+        "integrity": "sha512-oTKjJdShmDuGW94SyyaoQvAjf30dZaHnjJ8uAF+u2/vGJkJbJPJAT1gDiOJP5v1Zb6f9KEyW/1HpuaWIXtGHPg=="
+      },
+      "packageManifestSource": {
+        "name": "package.json",
+        "size": 786,
+        "sha256": "387b47d00ea96cab9b4c521629fbcdc7621053ac061812526f3c69700924cef5"
+      },
+      "packagedManifest": {
+        "size": 559,
+        "sha256": "589adffd985e683969d17caf2e4c4c5c860b97fbbf0b7cf691e3485177dcac32"
+      },
+      "sourceCommit": "e36051345f6d27a56e5f39ea70d2f789b8574046",
+      "declaredLicense": "MIT",
+      "reviewedSourceLicense": null,
+      "notice": {
+        "name": "brotli-1.3.3.txt",
+        "size": 1913,
+        "sha256": "8a8bac543fccf52a64708ff3315ca2be90e3e4c270634df1e4e4b51f0ee9c5d7",
+        "sourceUrl": "https://raw.githubusercontent.com/devongovett/brotli.js/e36051345f6d27a56e5f39ea70d2f789b8574046/readme.md",
+        "sourceCommit": "e36051345f6d27a56e5f39ea70d2f789b8574046",
+        "sourceMember": "readme.md",
+        "noticeKind": "publisher-license-declaration",
+        "completeLicenseText": false,
+        "copyrightCoverage": "unknown"
+      },
+      "scope": "npm-package-level",
+      "legalCompliance": "not-assessed"
+    },
+    {
+      "name": "dfa",
+      "version": "1.2.0",
+      "packageLocation": "node_modules/dfa",
+      "resolved": "https://registry.npmjs.org/dfa/-/dfa-1.2.0.tgz",
+      "integrity": "sha512-ED3jP8saaweFTjeGX8HQPjeC1YYyZs98jGNZx6IiBvxW7JG5v492kamAQB3m2wop07CvU/RQmzcKr6bgcC5D/Q==",
+      "publishedTarball": {
+        "sourceUrl": "https://registry.npmjs.org/dfa/-/dfa-1.2.0.tgz",
+        "size": 29338,
+        "sha256": "d781eb3a307ab6aa2d97028f695b17dbeadf6fd27788c333b1fb96d18d2a23ad",
+        "integrity": "sha512-ED3jP8saaweFTjeGX8HQPjeC1YYyZs98jGNZx6IiBvxW7JG5v492kamAQB3m2wop07CvU/RQmzcKr6bgcC5D/Q=="
+      },
+      "packageManifestSource": {
+        "name": "package.json",
+        "size": 978,
+        "sha256": "96c0ce3cc17b34aabd58fd442157766d9e244cba735e54ee4fe10d7841f0460c"
+      },
+      "packagedManifest": {
+        "size": 749,
+        "sha256": "d07e0db022e30c719f865dc412795ae577a1f39ebd6d964e0e09ce4298e5e0ee"
+      },
+      "sourceCommit": "3f5e603e5082caedabefefdf53e8a6ca3111e966",
+      "declaredLicense": "MIT",
+      "reviewedSourceLicense": null,
+      "notice": {
+        "name": "dfa-1.2.0.txt",
+        "size": 3201,
+        "sha256": "30bd445925aa53205ff7f9afa6a43e21358fab656e471df6e028431aefc426c7",
+        "sourceUrl": "https://raw.githubusercontent.com/devongovett/dfa/3f5e603e5082caedabefefdf53e8a6ca3111e966/README.md",
+        "sourceCommit": "3f5e603e5082caedabefefdf53e8a6ca3111e966",
+        "sourceMember": "README.md",
+        "noticeKind": "publisher-license-declaration",
+        "completeLicenseText": false,
+        "copyrightCoverage": "unknown"
+      },
+      "scope": "npm-package-level",
+      "legalCompliance": "not-assessed"
+    },
+    {
+      "name": "dingbat-to-unicode",
+      "version": "1.0.1",
+      "packageLocation": "node_modules/dingbat-to-unicode",
+      "resolved": "https://registry.npmjs.org/dingbat-to-unicode/-/dingbat-to-unicode-1.0.1.tgz",
+      "integrity": "sha512-98l0sW87ZT58pU4i61wa2OHwxbiYSbuxsCBozaVnYX2iCnr3bLM3fIes1/ej7h1YdOKuKt/MLs706TVnALA65w==",
+      "publishedTarball": {
+        "sourceUrl": "https://registry.npmjs.org/dingbat-to-unicode/-/dingbat-to-unicode-1.0.1.tgz",
+        "size": 14556,
+        "sha256": "e3360a80e59952789ca59b499dd443796a43a698c3b45d5ae3a3dfb2bef9560a",
+        "integrity": "sha512-98l0sW87ZT58pU4i61wa2OHwxbiYSbuxsCBozaVnYX2iCnr3bLM3fIes1/ej7h1YdOKuKt/MLs706TVnALA65w=="
+      },
+      "packageManifestSource": {
+        "name": "package.json",
+        "size": 1009,
+        "sha256": "e34a07af5c8074ec60fdc1f9db775d117d2b2f985d88175c455c9fc37f898d59"
+      },
+      "packagedManifest": {
+        "size": 691,
+        "sha256": "964e59168f19478e37ea779368c9123dbeb8d4012f13309df8425f970f8e0d89"
+      },
+      "sourceCommit": "b27f259b49907f99b1b9097abba5a9668106b779",
+      "declaredLicense": "BSD-2-Clause",
+      "reviewedSourceLicense": null,
+      "notice": {
+        "name": "dingbat-to-unicode-1.0.1.txt",
+        "size": 1009,
+        "sha256": "e34a07af5c8074ec60fdc1f9db775d117d2b2f985d88175c455c9fc37f898d59",
+        "sourceUrl": "https://registry.npmjs.org/dingbat-to-unicode/-/dingbat-to-unicode-1.0.1.tgz",
+        "sourceCommit": "b27f259b49907f99b1b9097abba5a9668106b779",
+        "sourceMember": "package.json",
+        "noticeKind": "publisher-license-declaration",
+        "completeLicenseText": false,
+        "copyrightCoverage": "unknown"
+      },
+      "scope": "npm-package-level",
+      "legalCompliance": "not-assessed"
+    },
+    {
+      "name": "fontkit",
+      "version": "2.0.4",
+      "packageLocation": "node_modules/fontkit",
+      "resolved": "https://registry.npmjs.org/fontkit/-/fontkit-2.0.4.tgz",
+      "integrity": "sha512-syetQadaUEDNdxdugga9CpEYVaQIxOwk7GlwZWWZ19//qW4zE5bknOKeMBDYAASwnpaSHKJITRLMF9m1fp3s6g==",
+      "publishedTarball": {
+        "sourceUrl": "https://registry.npmjs.org/fontkit/-/fontkit-2.0.4.tgz",
+        "size": 1172861,
+        "sha256": "f686a9515af33fce16ab4bffe50570728197e53165068548c6f75a1793797a08",
+        "integrity": "sha512-syetQadaUEDNdxdugga9CpEYVaQIxOwk7GlwZWWZ19//qW4zE5bknOKeMBDYAASwnpaSHKJITRLMF9m1fp3s6g=="
+      },
+      "packageManifestSource": {
+        "name": "package.json",
+        "size": 2432,
+        "sha256": "49c60605b92316a5d5fe57b9a3bca8950ad9a8beab1cb633d6f29862d1bd163d"
+      },
+      "packagedManifest": {
+        "size": 1767,
+        "sha256": "0629f51a325414575ed910e44c6cea455717b47fed78211281f629ca0a76621a"
+      },
+      "sourceCommit": "fbf3b9ef21eebd219eb73e666faed573af0fba09",
+      "declaredLicense": "MIT",
+      "reviewedSourceLicense": null,
+      "notice": {
+        "name": "fontkit-2.0.4.txt",
+        "size": 13254,
+        "sha256": "8a1cf12d8ae7277f047c3000af7677927f2da9243627223ba5715d40df4979d6",
+        "sourceUrl": "https://raw.githubusercontent.com/foliojs/fontkit/fbf3b9ef21eebd219eb73e666faed573af0fba09/README.md",
+        "sourceCommit": "fbf3b9ef21eebd219eb73e666faed573af0fba09",
+        "sourceMember": "README.md",
+        "noticeKind": "publisher-license-declaration",
+        "completeLicenseText": false,
+        "copyrightCoverage": "unknown"
+      },
+      "scope": "npm-package-level",
+      "legalCompliance": "not-assessed"
+    },
+    {
+      "name": "hash.js",
+      "version": "1.1.7",
+      "packageLocation": "node_modules/hash.js",
+      "resolved": "https://registry.npmjs.org/hash.js/-/hash.js-1.1.7.tgz",
+      "integrity": "sha512-taOaskGt4z4SOANNseOviYDvjEJinIkRgmp7LbKP2YTTmVxWBl87s/uzK9r+44BclBSp2X7K1hqeNfz9JbBeXA==",
+      "publishedTarball": {
+        "sourceUrl": "https://registry.npmjs.org/hash.js/-/hash.js-1.1.7.tgz",
+        "size": 12589,
+        "sha256": "8eadfe0cbd33052fedb65ed4bf9acfe4645eafaabf877d99e3b1d9d771668ca6",
+        "integrity": "sha512-taOaskGt4z4SOANNseOviYDvjEJinIkRgmp7LbKP2YTTmVxWBl87s/uzK9r+44BclBSp2X7K1hqeNfz9JbBeXA=="
+      },
+      "packageManifestSource": {
+        "name": "package.json",
+        "size": 855,
+        "sha256": "b97d8c10d1ed1b3355394a6a0cf9846716e39e87d32ee13e7edd56195b9b8950"
+      },
+      "packagedManifest": {
+        "size": 555,
+        "sha256": "9541b1624fed9a53e8251a75a1b352fe09217d0d7383dc7b81f900385803858f"
+      },
+      "sourceCommit": "fcd35edcc4e30145be4b7a737477ad54e83afc25",
+      "declaredLicense": "MIT",
+      "reviewedSourceLicense": null,
+      "notice": {
+        "name": "hash.js-1.1.7.txt",
+        "size": 1515,
+        "sha256": "5df660fe115c8ddcdb81c5d733c117b94abb706b91c26dac3ab7dc817dd9ba71",
+        "sourceUrl": "https://raw.githubusercontent.com/indutny/hash.js/fcd35edcc4e30145be4b7a737477ad54e83afc25/README.md",
+        "sourceCommit": "fcd35edcc4e30145be4b7a737477ad54e83afc25",
+        "sourceMember": "README.md",
+        "noticeKind": "complete-publisher-license",
+        "completeLicenseText": true,
+        "copyrightCoverage": "publisher-text-preserved"
+      },
+      "scope": "npm-package-level",
+      "legalCompliance": "not-assessed"
+    },
+    {
+      "name": "isarray",
+      "version": "1.0.0",
+      "packageLocation": "node_modules/isarray",
+      "resolved": "https://registry.npmjs.org/isarray/-/isarray-1.0.0.tgz",
+      "integrity": "sha512-VLghIWNM6ELQzo7zwmcg0NmTVyWKYjvIeM83yjp0wRDTmUnrM678fQbcKBo6n2CJEF0szoG//ytg+TKla89ALQ==",
+      "publishedTarball": {
+        "sourceUrl": "https://registry.npmjs.org/isarray/-/isarray-1.0.0.tgz",
+        "size": 2021,
+        "sha256": "e23c76f14f5222e07e39d89858b61e8e33f96956de9e0df3659cbdf8db950c87",
+        "integrity": "sha512-VLghIWNM6ELQzo7zwmcg0NmTVyWKYjvIeM83yjp0wRDTmUnrM678fQbcKBo6n2CJEF0szoG//ytg+TKla89ALQ=="
+      },
+      "packageManifestSource": {
+        "name": "package.json",
+        "size": 958,
+        "sha256": "93165ce56e458216c18240cd961a522af5b18e51da06f55d88ac552234455d95"
+      },
+      "packagedManifest": {
+        "size": 847,
+        "sha256": "5062c59991fcf8e16517ed950ae122f3191cd0af1493b2f4d90967e9fe60cf34"
+      },
+      "sourceCommit": "2a23a281f369e9ae06394c0fb4d2381355a6ba33",
+      "declaredLicense": "MIT",
+      "reviewedSourceLicense": null,
+      "notice": {
+        "name": "isarray-1.0.0.txt",
+        "size": 1890,
+        "sha256": "ff138e683771b187f3629c383db72ee7d632009010a36d08e18e8d2a34222ec7",
+        "sourceUrl": "https://raw.githubusercontent.com/juliangruber/isarray/2a23a281f369e9ae06394c0fb4d2381355a6ba33/README.md",
+        "sourceCommit": "2a23a281f369e9ae06394c0fb4d2381355a6ba33",
+        "sourceMember": "README.md",
+        "noticeKind": "complete-publisher-license",
+        "completeLicenseText": true,
+        "copyrightCoverage": "publisher-text-preserved"
+      },
+      "scope": "npm-package-level",
+      "legalCompliance": "not-assessed"
+    },
+    {
+      "name": "saxes",
+      "version": "5.0.1",
+      "packageLocation": "node_modules/saxes",
+      "resolved": "https://registry.npmjs.org/saxes/-/saxes-5.0.1.tgz",
+      "integrity": "sha512-5LBh1Tls8c9xgGjw3QrMwETmTMVk0oFgvrFSvWx62llR2hcEInrKNZ2GZCCuuy2lvWrdl5jhbpeqc5hRYKFOcw==",
+      "publishedTarball": {
+        "sourceUrl": "https://registry.npmjs.org/saxes/-/saxes-5.0.1.tgz",
+        "size": 35877,
+        "sha256": "d39d114627a8c29d1c26fb295dc4c1b81e8805a619f827d39177dfc39904a24b",
+        "integrity": "sha512-5LBh1Tls8c9xgGjw3QrMwETmTMVk0oFgvrFSvWx62llR2hcEInrKNZ2GZCCuuy2lvWrdl5jhbpeqc5hRYKFOcw=="
+      },
+      "packageManifestSource": {
+        "name": "package.json",
+        "size": 2809,
+        "sha256": "5730864bc76e7b0e2072c87756c8e73f56e0ca840337fecdedcd3e35e1e191c2"
+      },
+      "packagedManifest": {
+        "size": 1656,
+        "sha256": "096b62f28eeb292f5dbdbe6934dc13420e83278b4ef4bde3a6edb1294fd9a521"
+      },
+      "sourceCommit": "6ef6a275b20f19cb67808daf0d8f64e06aaf5b0e",
+      "declaredLicense": "ISC",
+      "reviewedSourceLicense": null,
+      "notice": {
+        "name": "saxes-5.0.1.txt",
+        "size": 3011,
+        "sha256": "0fac2374380621b22e6b50451057721a9c52935b02d16d106a9f04897f061d0e",
+        "sourceUrl": "https://raw.githubusercontent.com/lddubeau/saxes/6ef6a275b20f19cb67808daf0d8f64e06aaf5b0e/LICENSE",
+        "sourceCommit": "6ef6a275b20f19cb67808daf0d8f64e06aaf5b0e",
+        "sourceMember": "LICENSE",
+        "noticeKind": "complete-publisher-license",
+        "completeLicenseText": true,
+        "copyrightCoverage": "publisher-text-preserved"
+      },
+      "scope": "npm-package-level",
+      "legalCompliance": "not-assessed"
+    },
+    {
+      "name": "png-js",
+      "version": "1.1.0",
+      "packageLocation": "node_modules/png-js",
+      "resolved": "https://registry.npmjs.org/png-js/-/png-js-1.1.0.tgz",
+      "integrity": "sha512-PM/uYGzGdNSzqeOgly68+6wKQDL1SY0a/N+OEa/+br6LnHWOAJB0Npiamnodfq3jd2LS/i2fMeOKSAILjA+m5Q==",
+      "publishedTarball": {
+        "sourceUrl": "https://registry.npmjs.org/png-js/-/png-js-1.1.0.tgz",
+        "size": 8118,
+        "sha256": "8fc286c879eb4ac49ab405054956e3afbdfe696e48f360f2c4d6adb2cf053faf",
+        "integrity": "sha512-PM/uYGzGdNSzqeOgly68+6wKQDL1SY0a/N+OEa/+br6LnHWOAJB0Npiamnodfq3jd2LS/i2fMeOKSAILjA+m5Q=="
+      },
+      "packageManifestSource": {
+        "name": "package.json",
+        "size": 1541,
+        "sha256": "afd3a9e519b30e7197605822ce772f1702014c74577bf536176419e0e7492667"
+      },
+      "packagedManifest": {
+        "size": 1320,
+        "sha256": "5047d4043fbfceafba1df2f35f238578960c42e2821d7232af492b19bf84e6e0"
+      },
+      "sourceCommit": "fe53c2d25545e941a6f706cba30ed13c0991d1a1",
+      "declaredLicense": "unknown",
+      "reviewedSourceLicense": "MIT",
+      "notice": {
+        "name": "png-js-1.1.0.txt",
+        "size": 1069,
+        "sha256": "bdb26a2ec815931ed6a38f3416362566204ee85ecdef96702b636402da4c75c3",
+        "sourceUrl": "https://raw.githubusercontent.com/devongovett/png.js/fe53c2d25545e941a6f706cba30ed13c0991d1a1/LICENSE",
+        "sourceCommit": "fe53c2d25545e941a6f706cba30ed13c0991d1a1",
+        "sourceMember": "LICENSE",
+        "noticeKind": "complete-publisher-license",
+        "completeLicenseText": true,
+        "copyrightCoverage": "publisher-text-preserved"
+      },
+      "scope": "npm-package-level",
+      "legalCompliance": "not-assessed"
+    }
+  ],
+  "limitations": [
+    "Publisher license declarations are preserved verbatim, not expanded into invented license/copyright text.",
+    "Complete package/native rights and legal compatibility are not assessed.",
+    "Unknown manifest license identifiers are retained; separately reviewed publisher resources are explicitly distinguished."
+  ]
+}

@@ -1,0 +1,354 @@
+name: Windows Release
+
+on:
+  push:
+    tags: ['v[0-9]*', '!v*-*', '!v5.0.1'] # First public release mirrors the existing 5.0.1 binaries.
+    branches: ['release/v[0-9]*', 'publish-retry/v[0-9]*']
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref_name }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: windows-latest
+    timeout-minutes: 60
+    outputs:
+      tag: ${{ steps.version.outputs.tag }}
+      source: ${{ steps.version.outputs.source }}
+      install: ${{ steps.install.outcome }}
+      check: ${{ steps.check.outcome }}
+      checkDetails: ${{ steps.check.outputs.details }}
+      candidate: ${{ steps.candidate.outcome }}
+      candidateDetails: ${{ steps.candidate.outputs.details }}
+      desktop: ${{ steps.desktop.outcome }}
+      desktopDetails: ${{ steps.desktop.outputs.details }}
+      package: ${{ steps.package.outcome }}
+      packageDetails: ${{ steps.package.outputs.details }}
+      asar: ${{ steps.asar.outcome }}
+      packaged: ${{ steps.packaged.outcome }}
+      packagedDetails: ${{ steps.packaged.outputs.details }}
+      baseline: ${{ steps.baseline.outcome }}
+      installation: ${{ steps.installation.outcome }}
+      installationDetails: ${{ steps.installation.outputs.details }}
+      cli: ${{ steps.cli.outcome }}
+      complete: ${{ steps.complete.outcome }}
+      signatures: ${{ steps.signatures.outcome }}
+      signingMode: ${{ vars.DW_SIGNING_MODE || 'unsigned' }}
+      stage: ${{ steps.stage.outcome }}
+    env:
+      RELEASE_TAG: ${{ github.ref_name }}
+      CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+      DW_SIGNING_MODE: ${{ vars.DW_SIGNING_MODE || 'unsigned' }}
+      DW_REQUIRE_SIGNING: ${{ vars.DW_REQUIRE_SIGNING || '0' }}
+      DW_REQUIRE_INSTALLATION: '1'
+      DW_SIGNING_PUBLISHER: ${{ vars.DW_SIGNING_PUBLISHER }}
+      DW_SIGNING_ENDPOINT: ${{ vars.DW_SIGNING_ENDPOINT }}
+      DW_SIGNING_ACCOUNT: ${{ vars.DW_SIGNING_ACCOUNT }}
+      DW_SIGNING_PROFILE: ${{ vars.DW_SIGNING_PROFILE }}
+    steps:
+      - name: Select release source
+        id: source
+        shell: pwsh
+        run: |
+          $ref = $env:GITHUB_SHA
+          if ($env:GITHUB_REF -like 'refs/heads/publish-retry/*') {
+            $tag = $env:GITHUB_REF_NAME -creplace '^publish-retry/', ''
+            if ($tag -cnotmatch '^v\d+\.\d+\.\d+$') { throw 'Invalid retry tag' }
+            $ref = "refs/tags/$tag"
+          }
+          "ref=$ref" | Add-Content $env:GITHUB_OUTPUT
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ steps.source.outputs.ref }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - name: Validate version and release notes
+        id: version
+        shell: pwsh
+        run: |
+          $version = (Get-Content package.json | ConvertFrom-Json).version
+          $tag = $env:GITHUB_REF_NAME -replace '^(release|publish-retry)/', ''
+          if ($tag -ne "v$version") { throw 'Ref and application version differ' }
+          if (!(Test-Path "docs/RELEASE_NOTES_$version.md")) { throw 'Release notes are missing' }
+          "RELEASE_TAG=$tag" | Add-Content $env:GITHUB_ENV
+          "tag=$tag" | Add-Content $env:GITHUB_OUTPUT
+          $source = (git rev-parse HEAD).Trim()
+          "source=$source" | Add-Content $env:GITHUB_OUTPUT
+          "RELEASE_SOURCE=$source" | Add-Content $env:GITHUB_ENV
+          # Windows-hosted runners may inherit an 8.3 temp alias. Use the
+          # canonical path throughout builds and tests (same underlying folder).
+          $tempPath = (node -p "require('node:fs').realpathSync.native(require('node:os').tmpdir())").Trim()
+          if (!(Test-Path -LiteralPath $tempPath -PathType Container)) { throw 'Runner temp unavailable' }
+          "TEMP=$tempPath" | Add-Content $env:GITHUB_ENV
+          "TMP=$tempPath" | Add-Content $env:GITHUB_ENV
+      - name: Validate signing configuration
+        env:
+          AZURE_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+          AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+          AZURE_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
+          WIN_CSC_LINK: ${{ secrets.WIN_CSC_LINK }}
+          WIN_CSC_KEY_PASSWORD: ${{ secrets.WIN_CSC_KEY_PASSWORD }}
+        run: node -e "require('./scripts/windows-signing.cjs').signingConfiguration(require('./package.json').build)"
+      - id: install
+        run: npm ci
+      - id: check
+        shell: pwsh
+        run: |
+          $log = Join-Path $env:RUNNER_TEMP 'release-check.log'
+          npm run check 2>&1 | Tee-Object -FilePath $log
+          $code = $LASTEXITCODE
+          $lines = @(Get-Content $log)
+          $stage = @($lines | Where-Object { $_ -match '^\[check\]' } | Select-Object -Last 1)
+          $errors = @()
+          if ($code -ne 0) { $errors = @($lines | Where-Object { $_ -match '^\s*(FAIL|not ok|[✖×])|error TS\d+|Error:' } | Select-Object -Last 8 | ForEach-Object { $_.Substring(0, [Math]::Min($_.Length, 400)) }) }
+          $details = @{ stage = $stage; errors = $errors } | ConvertTo-Json -Compress
+          "details=$details" | Add-Content $env:GITHUB_OUTPUT
+          exit $code
+      - id: candidate
+        shell: pwsh
+        run: .\.github\scripts\run-release-check.ps1 -Script release:candidate:fast
+      - run: npm run r69:scene-memory-card:adversarial
+      - run: npm run r72:longwrite-livepath:adversarial
+      - run: npm run wp6:workflow-authority
+      - run: npm run r74:longform-workflow-recovery
+      - run: node scripts/release-scripts-selftest.cjs
+      - run: node --test scripts/prepare-release.test.cjs
+      - name: Windows desktop regression
+        id: desktop
+        shell: pwsh
+        run: .\.github\scripts\run-release-check.ps1 -Script e2e
+      - name: Build Windows installer and portable
+        id: package
+        shell: pwsh
+        env:
+          AZURE_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+          AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+          AZURE_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
+          WIN_CSC_LINK: ${{ secrets.WIN_CSC_LINK }}
+          WIN_CSC_KEY_PASSWORD: ${{ secrets.WIN_CSC_KEY_PASSWORD }}
+        run: |
+          $project = Get-Content package.json -Raw | ConvertFrom-Json
+          if ($project.scripts.'build:desktop:release') {
+            .\.github\scripts\run-release-check.ps1 -Script dist -ScriptArgs @('--', '--x64', '--publish', 'never')
+            exit $LASTEXITCODE
+          }
+          # Older immutable tags use electron-vite's unminified default. Use the
+          # same stock production optimizer and the tag's own packaging script.
+          node --input-type=module -e "import {build} from 'electron-vite'; await build({build:{minify:'esbuild'}})"
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          node scripts/build-windows.cjs --x64 --publish never
+          exit $LASTEXITCODE
+      - name: Verify packaged ASAR
+        id: asar
+        run: npm run release:asar -- --dir=dist
+      - name: Test the actual packaged application
+        id: packaged
+        shell: pwsh
+        run: |
+          $env:DW_E2E_EXECUTABLE = (Resolve-Path 'dist/win-unpacked/DeepWriter.exe').Path
+          .\.github\scripts\run-release-check.ps1 -Script e2e:run
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Download the published upgrade baseline
+        id: baseline
+        if: always() && steps.package.outcome == 'success' && steps.asar.outcome == 'success'
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          $baseline = Join-Path $env:RUNNER_TEMP 'upgrade-baseline'
+          gh release download v5.0.1 --pattern 'DeepWriter-5.0.1-x64-setup.exe' --pattern 'SHA256SUMS.txt' --dir $baseline
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $installer = Join-Path $baseline 'DeepWriter-5.0.1-x64-setup.exe'
+          $expected = (Get-Content (Join-Path $baseline 'SHA256SUMS.txt') | Where-Object { $_ -match '  DeepWriter-5.0.1-x64-setup.exe$' }) -split '  '
+          if ($expected.Length -ne 2 -or (Get-FileHash $installer -Algorithm SHA256).Hash.ToLowerInvariant() -cne $expected[0]) { throw 'Upgrade baseline checksum differs' }
+          "DW_UPGRADE_INSTALLER=$installer" | Add-Content $env:GITHUB_ENV
+          "DW_UPGRADE_BASELINE_VERSION=5.0.1" | Add-Content $env:GITHUB_ENV
+      - name: Actual clean install, upgrade and uninstall
+        id: installation
+        if: always() && steps.baseline.outcome == 'success' && steps.package.outcome == 'success' && steps.asar.outcome == 'success'
+        shell: pwsh
+        run: |
+          # Older tagged installation reporters take their source identity from this variable.
+          $env:GITHUB_SHA = $env:RELEASE_SOURCE
+          .\.github\scripts\run-release-check.ps1 -Script release:installation
+      - name: Verify trusted Windows signatures and timestamps
+        id: signatures
+        if: env.DW_SIGNING_MODE != 'unsigned'
+        shell: pwsh
+        run: |
+          $env:GITHUB_SHA = $env:RELEASE_SOURCE
+          .\.github\scripts\verify-windows-signatures.ps1 -Publisher $env:DW_SIGNING_PUBLISHER
+      - name: Build and verify the matching standalone CLI
+        id: cli
+        shell: pwsh
+        run: |
+          $version = (Get-Content package.json | ConvertFrom-Json).version
+          $runtime = Join-Path 'out' 'runtime-node-24.19.0'
+          New-Item -ItemType Directory -Path $runtime | Out-Null
+          $nodeExe = Join-Path $runtime 'node.exe'
+          Invoke-WebRequest 'https://nodejs.org/download/release/v24.19.0/win-x64/node.exe' -OutFile $nodeExe
+          if ((Get-FileHash $nodeExe -Algorithm SHA256).Hash.ToLowerInvariant() -cne '3602f2bb1a10f2cbab4c36886218a33c1ab3db87290e73b033c46c77147d0237') { throw 'CLI Node runtime differs from the pinned official executable' }
+          node -e "require('./scripts/package-cli.cjs').acquireNodeLicense('out/runtime-node-24.19.0/LICENSE').catch(() => { console.error('Node license retrieval failed'); process.exitCode = 1 })"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          node scripts/build-cli.cjs --version $version --source-commit $env:RELEASE_SOURCE --output "out/cli-build/$version"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          node scripts/package-cli.cjs --version $version --source-commit $env:RELEASE_SOURCE --bundle "out/cli-build/$version/deepwriter.cjs" --metafile "out/cli-build/$version/cli-metafile.json" --node-exe $nodeExe --node-license "$runtime/LICENSE" --output "out/cli-package/$version"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $cliRoot = Join-Path 'out/cli-package' $version
+          $actualVersion = & "$cliRoot/runtime/node.exe" "$cliRoot/deepwriter.cjs" --version
+          if ($LASTEXITCODE -ne 0 -or $actualVersion.Trim() -cne $version) { throw 'Packaged CLI does not execute with the matching version' }
+          & "$cliRoot/runtime/node.exe" "$cliRoot/deepwriter.cjs" --help
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Inventory the actual desktop distribution
+        shell: pwsh
+        run: |
+          node scripts/distribution-inventory.cjs --asar dist/win-unpacked/resources/app.asar --electron-dir dist/win-unpacked --report out/release-inventory.json --notices out/THIRD_PARTY_NOTICES.txt
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Stage versioned SBOM and checksums
+        id: stage
+        shell: pwsh
+        run: |
+          $version = (Get-Content package.json | ConvertFrom-Json).version
+          npm run release:sbom -- --version=$version --output="release/$env:RELEASE_TAG/SBOM_DEPENDENCIES_$version.md"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          node scripts/prepare-release.cjs
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Assemble and verify the complete Desktop and CLI archive
+        id: complete
+        shell: pwsh
+        run: |
+          $version = (Get-Content package.json | ConvertFrom-Json).version
+          node scripts/assemble-complete-release.cjs --release-dir "release/$env:RELEASE_TAG" --cli-dir "out/cli-package/$version" --inventory out/release-inventory.json --notices out/THIRD_PARTY_NOTICES.txt --electron-dir dist/win-unpacked --source-commit $env:RELEASE_SOURCE
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows-release-${{ steps.version.outputs.tag }}
+          path: release/
+          if-no-files-found: error
+          retention-days: 30
+      - name: Preserve diagnostic evidence
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-diagnostics-${{ steps.version.outputs.tag }}
+          path: |
+            e2e-screenshots/*.png
+            e2e-screenshots/shutdown-*.json
+          if-no-files-found: ignore
+          retention-days: 7
+
+  publish:
+    needs: build
+    concurrency:
+      group: publish-assets-${{ needs.build.outputs.tag }}
+      cancel-in-progress: false
+    if: startsWith(github.ref, 'refs/tags/') || startsWith(github.ref, 'refs/heads/publish-retry/')
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    env:
+      RELEASE_TAG: ${{ needs.build.outputs.tag }}
+      RELEASE_SOURCE: ${{ needs.build.outputs.source }}
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.build.outputs.source }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - name: Install locked verification dependencies without lifecycle scripts
+        run: npm ci --ignore-scripts --no-audit --no-fund
+      - uses: actions/download-artifact@v4
+        with:
+          name: windows-release-${{ needs.build.outputs.tag }}
+          path: release-files
+      - name: Verify downloaded artifacts
+        shell: bash
+        run: |
+          version="${RELEASE_TAG#v}"
+          (cd "release-files/$RELEASE_TAG" && sha256sum --check SHA256SUMS.txt)
+          (cd release-files && sha256sum --check "DeepWriter-$version-complete.zip.SHA256SUMS.txt")
+          node scripts/verify-complete-download.cjs release-files "$version" "$RELEASE_SOURCE"
+      - name: Verify official identity, installation and optional signature evidence
+        run: |
+          node - <<'JS'
+          require('./scripts/prepare-release.cjs').verifyOfficialRelease(`release-files/${process.env.RELEASE_TAG}`, process.env.RELEASE_TAG, process.env.RELEASE_SOURCE)
+            .then(metadata => console.log(`Verified official assets and installation evidence; unsigned=${metadata.unsigned}`))
+            .catch(error => { console.error(error.message); process.exitCode = 1 })
+          JS
+      - name: Publish complete verified release
+        shell: bash
+        run: |
+          version="${RELEASE_TAG#v}"
+          git fetch --no-tags --depth=1 origin "refs/tags/$RELEASE_TAG"
+          test "$(git rev-parse 'FETCH_HEAD^{commit}')" = "$RELEASE_SOURCE"
+          notes="docs/RELEASE_NOTES_${version}.md"
+          if gh release view "$RELEASE_TAG" --json isDraft > release-state.json 2>/dev/null; then
+            node -e "if (!require('./release-state.json').isDraft) throw new Error('Refusing to change an already published release')"
+          else
+            gh release create "$RELEASE_TAG" --verify-tag --draft --title "DeepWriter $RELEASE_TAG" --notes-file "$notes"
+          fi
+          desktop="release-files/$RELEASE_TAG"
+          assets=("$desktop"/*.exe "$desktop/SHA256SUMS.txt" "$desktop/release.json" "$desktop"/SBOM_DEPENDENCIES_*.md "$desktop/installation-verification.json" "release-files/DeepWriter-$version-complete.zip" "release-files/DeepWriter-$version-complete.zip.manifest.json" "release-files/DeepWriter-$version-complete.zip.SHA256SUMS.txt")
+          if [ -f "$desktop/signature-verification.json" ]; then
+            assets+=("$desktop/signature-verification.json")
+          fi
+          gh release upload "$RELEASE_TAG" "${assets[@]}" --clobber
+          gh release edit "$RELEASE_TAG" --draft=false --prerelease=false --latest=true
+      - name: Download and verify the published release assets
+        shell: bash
+        run: |
+          version="${RELEASE_TAG#v}"
+          received="$(mktemp -d "$RUNNER_TEMP/deepwriter-published.XXXXXX")"
+          gh release download "$RELEASE_TAG" --repo "$GH_REPO" --dir "$received"
+          (cd "$received" && sha256sum --check SHA256SUMS.txt)
+          (cd "$received" && sha256sum --check "DeepWriter-$version-complete.zip.SHA256SUMS.txt")
+          node scripts/verify-complete-download.cjs "$received" "$version" "$RELEASE_SOURCE"
+
+  status:
+    if: always()
+    needs: [build, publish]
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: write
+    env:
+      RELEASE_TAG: ${{ needs.build.outputs.tag || github.ref_name }}
+      RELEASE_SOURCE: ${{ needs.build.outputs.source || github.sha }}
+      BUILD_RESULT: ${{ needs.build.result }}
+      BUILD_CHECKS: ${{ toJSON(needs.build.outputs) }}
+      PUBLISH_RESULT: ${{ needs.publish.result }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Record release outcome
+        shell: bash
+        run: |
+          node - <<'JS'
+          const fs = require('node:fs')
+          const path = require('node:path')
+          const tag = process.env.RELEASE_TAG.replace(/^(?:release|publish-retry)\//, '')
+          if (!/^v\d+\.\d+\.\d+$/.test(tag)) throw new Error('Invalid release tag')
+          const status = { tag, sourceCommit: process.env.RELEASE_SOURCE, workflowCommit: process.env.GITHUB_SHA, build: process.env.BUILD_RESULT, checks: JSON.parse(process.env.BUILD_CHECKS || '{}'), publish: process.env.PUBLISH_RESULT, published: process.env.PUBLISH_RESULT === 'success', runUrl: `https://github.com/${process.env.GITHUB_REPOSITORY}/actions/runs/${process.env.GITHUB_RUN_ID}`, releaseUrl: `https://github.com/${process.env.GITHUB_REPOSITORY}/releases/tag/${tag}`, updatedAt: new Date().toISOString() }
+          fs.writeFileSync(path.join(process.env.RUNNER_TEMP, 'release-status.json'), JSON.stringify(status, null, 2) + '\n')
+          JS
+          branch="release-status/$RELEASE_TAG"
+          if git fetch origin "$branch" --depth=1; then
+            git switch --force -C "$branch" FETCH_HEAD
+          else
+            git switch --orphan "$branch"
+          fi
+          cp "$RUNNER_TEMP/release-status.json" release-status.json
+          git add release-status.json
+          git -c user.name=github-actions -c user.email=41898282+github-actions[bot]@users.noreply.github.com commit -m "Record $RELEASE_TAG release outcome"
+          git push origin "HEAD:refs/heads/$branch"

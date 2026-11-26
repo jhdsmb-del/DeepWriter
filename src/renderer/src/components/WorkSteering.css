@@ -1,0 +1,5 @@
+.composer-steering { margin: 8px 0; color: var(--dw-muted); font-size: 13px; }
+.composer-steering summary { cursor: pointer; padding: 4px 0; }
+.composer-steering ul { list-style: none; padding: 0; margin: 6px 0; max-height: 220px; overflow: auto; }
+.composer-steering li { border-left: 2px solid var(--dw-line-strong); padding: 4px 10px; margin: 8px 0; }
+.composer-steering p { white-space: pre-wrap; overflow-wrap: anywhere; color: var(--dw-text); font-size: 14px; line-height: 1.5; margin: 4px 0; }

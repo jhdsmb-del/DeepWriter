@@ -1,0 +1,148 @@
+'use strict'
+// Fresh Electron profile and loopback directory/generation; no owner key or cloud call.
+const assert = require('node:assert/strict')
+const fs = require('node:fs')
+const path = require('node:path')
+const os = require('node:os')
+const http = require('node:http')
+const { execFileSync } = require('node:child_process')
+const { _electron: electron } = require('@playwright/test')
+const root = path.resolve(__dirname, '..')
+async function main() {
+  const receipts = []
+  const server = http.createServer((req, res) => {
+    receipts.push(req.url)
+    if (req.url === '/v1/chat/completions') {
+      let body = ''
+      req.on('data', chunk => { body += chunk })
+      req.on('end', () => { res.writeHead(200, { 'content-type': 'application/json' }); res.end(JSON.stringify({ choices: [{ message: { content: 'OK' } }], usage: { prompt_tokens: 5, completion_tokens: 2 } })) })
+      return
+    }
+    if (req.url !== '/v1/models') { res.writeHead(400); res.end('{}'); return }
+    res.writeHead(200, { 'content-type': 'application/json' })
+    res.end(JSON.stringify({ data: [{ id: 'picked-fixture-model' }, { id: 'not-picked-fixture-model' }] }))
+  })
+  await new Promise(resolve => server.listen(0, '127.0.0.1', resolve))
+  const userData = fs.mkdtempSync(path.join(os.tmpdir(), 'dw-import-ui-'))
+  const output = path.join(root, 'out', 'model-config-edit-hotfix')
+  fs.mkdirSync(output, { recursive: true })
+  let app
+  let pid
+  let checks = 0
+  const check = (name, condition) => { assert.ok(condition, name); checks++; console.log('PASS ' + name) }
+  try {
+    app = await electron.launch({ args: [path.join(root, 'out/main/index.js')], env: { ...process.env, NODE_ENV: 'test', DW_TEST_USERDATA: userData } })
+    pid = app.process().pid
+    const page = await app.firstWindow()
+    page.setDefaultTimeout(10000)
+    page.on('dialog', dialog => dialog.accept()) // Only our synthetic loopback fixture.
+    await page.waitForLoadState('domcontentloaded')
+    await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setSize(1280, 900))
+    await page.getByRole('button', { name: '设置', exact: true }).click()
+    const manager = page.getByTestId('provider-registry')
+    await manager.getByRole('button', { name: '＋ 添加供应商', exact: true }).click()
+    await manager.getByLabel('供应商名称').fill('UI fixture')
+    await manager.getByLabel('供应商 Base URL').fill(`http://127.0.0.1:${server.address().port}/v1`)
+    await manager.getByLabel('模型 ID 1', { exact: true }).fill('deepseek-flash')
+    await page.locator('.dw-settings-modal .modal-body').evaluate(element => { element.scrollTop = 0 })
+    check('add supplier action is visible without scrolling at 1280x900', await manager.getByRole('button', { name: '添加供应商', exact: true }).evaluate(element => { const rect = element.getBoundingClientRect(); const body = element.closest('.modal-body').getBoundingClientRect(); return rect.top >= body.top && rect.bottom <= body.bottom }))
+    await page.screenshot({ path: path.join(output, 'add-provider.png'), scale: 'css' })
+    check('normal form has no Profile/credential/path setup steps', !(await manager.innerText()).includes('Profile') && await manager.getByLabel('供应商 API 格式').isVisible())
+    await manager.getByLabel('供应商 API Key').fill('synthetic-ui-fixture-key')
+    await manager.getByRole('button', { name: '添加供应商', exact: true }).click()
+    await manager.getByText('供应商已添加，模型可直接在对话中选择。').waitFor()
+    check('one save clears secret input', await manager.getByLabel('当前供应商 API Key').inputValue() === '')
+    let snapshot = await page.evaluate(() => window.ds.providerSnapshot())
+    check('snapshot never contains plaintext key', !JSON.stringify(snapshot).includes('synthetic-ui-fixture-key'))
+    const provider = snapshot.data.providers.find(entry => entry.displayName === 'UI fixture')
+    const model = snapshot.data.models.find(entry => entry.providerId === provider.id && entry.remoteModelId === 'deepseek-flash')
+    check('saved model already has an internal profile', snapshot.data.profiles.some(profile => profile.modelId === model.id))
+    check('known manual model automatically receives offline context/output/effort specifications', model.contextWindow > 100000 && model.maxOutputTokens > 10000 && model.capabilities.reasoning.efforts.join(',') === 'low,high,max')
+    await manager.getByRole('button', { name: '获取模型', exact: true }).click()
+    await manager.getByLabel('picked-fixture-model', { exact: true }).check()
+    await manager.getByRole('button', { name: '添加所选模型（1）', exact: true }).click()
+    await manager.getByText('所选模型已添加，可直接使用。').waitFor()
+    snapshot = await page.evaluate(() => window.ds.providerSnapshot())
+    check('directory preview saves only checked model', snapshot.data.models.some(model => model.remoteModelId === 'picked-fixture-model') && !snapshot.data.models.some(model => model.remoteModelId === 'not-picked-fixture-model'))
+    check('directory used normalized /v1/models; no generation', receipts.length === 1 && receipts[0] === '/v1/models')
+    await manager.getByLabel('deepseek-flash 规格与连接').click()
+    const details = manager.locator('.dw-provider-model-row').filter({ hasText: 'deepseek-flash' }).locator('details')
+    check('model specifications are collapsed until requested, then show source and actual values', (await details.innerText()).includes('models.dev') && (await details.innerText()).includes('low / high / max'))
+    await manager.getByRole('button', { name: '测试 deepseek-flash 连接', exact: true }).click()
+    await manager.getByText('deepseek-flash 已成功返回回复。').waitFor()
+    check('explicit UI connection test actually reaches generation endpoint', receipts.length === 2 && receipts[1] === '/v1/chat/completions' && (await details.innerText()).includes('已连接'))
+    await manager.getByRole('button', { name: 'deepseek-flash 选择', exact: true }).click()
+    await manager.getByText('已选择 deepseek-flash。').waitFor()
+    await page.getByRole('button', { name: '关闭设置', exact: true }).click()
+    await page.getByTestId('model-reasoning-trigger').click()
+    const strength = page.getByRole('slider', { name: '思考强度', exact: true })
+    check('recognized imported model exposes usable reasoning slider without paid probe', await strength.isEnabled())
+    await strength.focus(); await strength.press('End')
+    await page.waitForFunction(async () => { const result = await window.ds.providerSnapshot(); const id = result.data.bindings.draftProfileId; return result.data.profiles.find(profile => profile.id === id)?.reasoning.effort === 'max' })
+    snapshot = await page.evaluate(() => window.ds.providerSnapshot())
+    check('actual max effort and provider-native mapping are saved from normal chat control', snapshot.data.profiles.find(profile => profile.id === snapshot.data.bindings.draftProfileId)?.compatibilityMappingId === 'openai_chat.thinking')
+    await page.screenshot({ path: path.join(output, 'reasoning-options.png'), scale: 'css' })
+    await page.getByRole('button', { name: '选择模型', exact: true }).click()
+    const option = page.getByRole('option', { name: /picked-fixture-model/ })
+    check('imported model is enabled in chat picker', await option.isEnabled())
+    await option.click()
+    await page.waitForFunction(() => document.querySelector('[data-testid="model-reasoning-trigger"]')?.textContent?.includes('picked-fixture-model'))
+    snapshot = await page.evaluate(() => window.ds.providerSnapshot())
+    const active = snapshot.data.profiles.find(profile => profile.id === snapshot.data.bindings.draftProfileId)
+    check('chat selection resolves to correct provider/model', snapshot.data.models.find(model => model.id === active.modelId)?.remoteModelId === 'picked-fixture-model' && active.providerId === provider.id)
+    await page.getByRole('button', { name: '关闭模型与思考', exact: true }).click()
+    await page.getByRole('button', { name: '设置', exact: true }).click()
+    await manager.getByRole('button', { name: 'UI fixture', exact: true }).click()
+    await page.locator('.dw-settings-modal .modal-body').evaluate(element => { element.scrollTop = 0 })
+    await page.screenshot({ path: path.join(output, 'provider-models.png'), scale: 'css' })
+    const overflow = await manager.evaluate(element => element.scrollWidth > element.clientWidth + 1)
+    check('provider form has no horizontal overflow', !overflow)
+    const updatedBase = `http://127.0.0.1:${server.address().port}/api/v1`
+    check('saved supplier URL is editable', await manager.getByLabel('当前供应商 Base URL').isEditable())
+    await manager.getByLabel('当前供应商 Base URL').fill(updatedBase)
+    await manager.getByLabel('当前供应商 API Key').fill('synthetic-ui-replacement-key')
+    await page.evaluate(() => window.dispatchEvent(new Event('deepwriter:provider-registry-changed')))
+    check('snapshot refresh does not erase URL/key being edited', await manager.getByLabel('当前供应商 Base URL').inputValue() === updatedBase && await manager.getByLabel('当前供应商 API Key').inputValue() === 'synthetic-ui-replacement-key')
+    await page.getByRole('button', { name: '保存并关闭', exact: true }).click()
+    await page.getByRole('dialog', { name: '设置', exact: true }).waitFor({ state: 'hidden' })
+    snapshot = await page.evaluate(() => window.ds.providerSnapshot())
+    const edited = snapshot.data.providers.find(entry => entry.id === provider.id)
+    check('footer save persists edited URL/key while preserving supplier/model identity', edited.chatPath === '/api/v1/chat/completions' && edited.defaultCredentialRefId === provider.defaultCredentialRefId && snapshot.data.credentials.find(entry => entry.id === edited.defaultCredentialRefId)?.maskedHint?.endsWith('-key') && snapshot.data.models.some(entry => entry.id === model.id))
+    check('edited plaintext key is absent from renderer snapshot', !JSON.stringify(snapshot).includes('synthetic-ui-replacement-key'))
+    await page.getByRole('button', { name: '设置', exact: true }).click()
+    await manager.getByRole('button', { name: 'UI fixture', exact: true }).click()
+    check('saved URL survives closing/reopening settings', await manager.getByLabel('当前供应商 Base URL').inputValue() === updatedBase && await manager.getByLabel('当前供应商 API Key').inputValue() === '')
+    await manager.getByRole('button', { name: '＋ 添加供应商', exact: true }).click()
+    await manager.getByLabel('供应商名称').fill('Footer fixture')
+    await manager.getByLabel('供应商 Base URL').fill(`http://127.0.0.1:${server.address().port}/v1`)
+    await manager.getByLabel('供应商 API Key').fill('synthetic-footer-key')
+    await manager.getByLabel('模型 ID 1', { exact: true }).fill('footer-fixture-model')
+    await page.getByRole('button', { name: '保存并关闭', exact: true }).click()
+    await page.getByRole('dialog', { name: '设置', exact: true }).waitFor({ state: 'hidden' })
+    snapshot = await page.evaluate(() => window.ds.providerSnapshot())
+    check('footer save also submits a newly filled supplier form instead of discarding it', snapshot.data.providers.some(entry => entry.displayName === 'Footer fixture' && entry.defaultCredentialRefId) && snapshot.data.models.some(entry => entry.remoteModelId === 'footer-fixture-model'))
+    const builtinBefore = snapshot.data.providers.find(entry => entry.kind === 'builtin')
+    await page.getByRole('button', { name: '设置', exact: true }).click()
+    await manager.getByRole('button', { name: 'DeepSeek', exact: true }).click()
+    await manager.getByLabel('当前供应商 API Key').fill('synthetic-builtin-fixture-key')
+    await page.getByRole('button', { name: '保存并关闭', exact: true }).click()
+    await page.getByRole('dialog', { name: '设置', exact: true }).waitFor({ state: 'hidden' })
+    snapshot = await page.evaluate(() => window.ds.providerSnapshot())
+    const builtinAfter = snapshot.data.providers.find(entry => entry.id === builtinBefore.id)
+    check('builtin Key entry works without rewriting native URL/protocol', Boolean(builtinAfter.defaultCredentialRefId) && builtinAfter.chatPath === builtinBefore.chatPath && builtinAfter.transportPolicy.protocol === builtinBefore.transportPolicy.protocol)
+    console.log(`Model import UI: ${checks} PASS / 0 FAIL`)
+  } finally {
+    if (app) {
+      let timer
+      const closed = await Promise.race([app.close().then(() => true, () => false), new Promise(resolve => { timer = setTimeout(() => resolve(false), 10000) })])
+      clearTimeout(timer)
+      if (!closed && pid) {
+        try { execFileSync('taskkill', ['/F', '/T', '/PID', String(pid)], { windowsHide: true, stdio: 'ignore' }) } catch {}
+      }
+    }
+    await new Promise(resolve => server.close(resolve))
+    // Exact mkdtemp directory owned by this fixture, never an owner profile.
+    fs.rmSync(userData, { recursive: true, force: true })
+  }
+}
+main().catch(error => { console.error(error.message); process.exitCode = 1 })

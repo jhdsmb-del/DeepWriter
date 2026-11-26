@@ -1,0 +1,116 @@
+name: Publish validated Windows candidate
+
+on:
+  push:
+    branches: ['publish/v1.3.0-rc.1']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: candidate-v1.3.0-rc.1
+  cancel-in-progress: false
+
+env:
+  CANDIDATE_TAG: v1.3.0-rc.1
+  CANDIDATE_VERSION: 1.3.0
+  SOURCE_COMMIT: 2402efcc82dd21cb32143c7577299b7208195d7b
+  SOURCE_RUN: '36917547819'
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: write
+      actions: read
+    outputs:
+      source: ${{ steps.source.outcome }}
+      artifacts: ${{ steps.artifacts.outcome }}
+      publication: ${{ steps.publication.outcome }}
+      downloaded: ${{ steps.downloaded.outcome }}
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Verify the successful Windows build identity
+        id: source
+        run: |
+          gh run view "$SOURCE_RUN" --json status,conclusion,headSha,headBranch,workflowName > source-run.json
+          node - <<'JS'
+          const run = require('./source-run.json')
+          if (run.status !== 'completed' || run.conclusion !== 'success' || run.headSha !== process.env.SOURCE_COMMIT || run.headBranch !== `release/v${process.env.CANDIDATE_VERSION}` || run.workflowName !== 'Windows Release') throw new Error('Source is not the validated successful Windows candidate build')
+          JS
+      - uses: actions/download-artifact@v4
+        with:
+          name: windows-release-v1.3.0
+          path: release-files
+          run-id: ${{ env.SOURCE_RUN }}
+          github-token: ${{ github.token }}
+      - name: Verify unchanged artifacts and installation evidence
+        id: artifacts
+        run: node scripts/verify-candidate-release.cjs release-files "$CANDIDATE_VERSION" "$SOURCE_COMMIT"
+      - name: Publish the complete unsigned prerelease
+        id: publication
+        run: |
+          if gh release view "$CANDIDATE_TAG" --json isDraft > release-state.json 2>/dev/null; then
+            node -e "if (!require('./release-state.json').isDraft) throw new Error('Refusing to change an already published release')"
+          else
+            gh release create "$CANDIDATE_TAG" --target "$SOURCE_COMMIT" --draft --prerelease --latest=false --title 'DeepWriter 1.3.0 RC1（未签名）' --notes-file docs/RELEASE_NOTES_1.3.0_RC1.md
+          fi
+          gh release upload "$CANDIDATE_TAG" release-files/* --clobber
+          gh release edit "$CANDIDATE_TAG" --draft=false --prerelease=true --latest=false
+      - name: Download and verify the published release
+        id: downloaded
+        run: |
+          gh release view "$CANDIDATE_TAG" --json isDraft,isPrerelease,tagName,assets,url > published-release.json
+          gh api "repos/$GH_REPO/git/ref/tags/$CANDIDATE_TAG" > published-tag.json
+          node - <<'JS'
+          const release = require('./published-release.json')
+          const tag = require('./published-tag.json')
+          const expected = [`DeepWriter-${process.env.CANDIDATE_VERSION}-x64-setup.exe`, `DeepWriter-${process.env.CANDIDATE_VERSION}-x64-portable.exe`, 'installation-verification.json', `SBOM_DEPENDENCIES_${process.env.CANDIDATE_VERSION}.md`, 'release.json', 'SHA256SUMS.txt'].sort()
+          if (release.isDraft || !release.isPrerelease || release.tagName !== process.env.CANDIDATE_TAG || JSON.stringify(release.assets.map(asset => asset.name).sort()) !== JSON.stringify(expected)) throw new Error('Published release identity or assets differ')
+          if (tag.object.type !== 'commit' || tag.object.sha !== process.env.SOURCE_COMMIT) throw new Error('Published tag does not point to the validated source')
+          JS
+          gh release download "$CANDIDATE_TAG" --dir downloaded-release
+          node scripts/verify-candidate-release.cjs downloaded-release "$CANDIDATE_VERSION" "$SOURCE_COMMIT"
+          diff -r release-files downloaded-release
+
+  status:
+    if: always()
+    needs: publish
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: write
+    env:
+      PUBLISH_RESULT: ${{ needs.publish.result }}
+      PUBLISH_CHECKS: ${{ toJSON(needs.publish.outputs) }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Record verified publication outcome
+        run: |
+          node - <<'JS'
+          const fs = require('node:fs')
+          const path = require('node:path')
+          const tag = process.env.CANDIDATE_TAG
+          const checks = JSON.parse(process.env.PUBLISH_CHECKS || '{}')
+          const status = { tag, sourceCommit: process.env.SOURCE_COMMIT, sourceRun: process.env.SOURCE_RUN, publish: process.env.PUBLISH_RESULT, checks, published: process.env.PUBLISH_RESULT === 'success' && checks.downloaded === 'success', unsigned: true, prerelease: true, runUrl: `https://github.com/${process.env.GITHUB_REPOSITORY}/actions/runs/${process.env.GITHUB_RUN_ID}`, releaseUrl: `https://github.com/${process.env.GITHUB_REPOSITORY}/releases/tag/${tag}`, updatedAt: new Date().toISOString() }
+          fs.writeFileSync(path.join(process.env.RUNNER_TEMP, 'candidate-status.json'), JSON.stringify(status, null, 2) + '\n')
+          JS
+          branch="release-status/$CANDIDATE_TAG"
+          if git fetch origin "$branch" --depth=1; then
+            git switch --force -C "$branch" FETCH_HEAD
+          else
+            git switch --orphan "$branch"
+          fi
+          cp "$RUNNER_TEMP/candidate-status.json" release-status.json
+          git add release-status.json
+          git -c user.name=github-actions -c user.email=41898282+github-actions[bot]@users.noreply.github.com commit -m "Record $CANDIDATE_TAG publication outcome"
+          git push origin "HEAD:refs/heads/$branch"

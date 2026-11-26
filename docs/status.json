@@ -1,0 +1,696 @@
+{
+  "schemaVersion": 1,
+  "generatedAt": "2026-09-26T05:51:23.6922796Z",
+  "note": "DeepWriter 唯一权威状态表（R4.5 + UI 接管复审）。verified 必须引用当前工作树实际执行的 test id 与原始结果；not_run/blocked 必须如实标注。docs/R4_1_STATUS.json 为历史轮次报告（historical）。",
+  "baseline": {
+    "typecheck": "PASS",
+    "verify": "326 PASS / 0 FAIL / 0 BLOCKED",
+    "r41Regressions": "18 PASS / 0 FAIL（B-01~B-06 + S-03 + S-05 核心）",
+    "r41jMigration": "24 PASS / 0 FAIL（JSONL 一次性导入）",
+    "r41cCancel": "20 PASS / 0 FAIL（S-04 取消/恢复，R4.2 更新为新语义）",
+    "gate1Security": "89 PASS / 0 FAIL",
+    "gate2Database": "22 PASS / 0 FAIL（最新 user_version=10；含 manifest/recovery/evidence/completion 迁移）",
+    "r42Atomic": "23 PASS / 0 FAIL（PERSIST-ATOMIC-02）",
+    "r42Perm": "18 PASS / 0 FAIL（SEC-PERM-*）",
+    "r42Snapshot": "24 PASS / 0 FAIL（SNAPSHOT-02-*）",
+    "r42Recovery": "26 PASS / 0 FAIL（RECOVERY-DECIDE-*）",
+    "r42Context": "40 + 11 PASS / 0 FAIL（CTX-* 模块+集成）",
+    "r42Usage": "16 PASS / 0 FAIL（USAGE-CHUNK-*）",
+    "r42Assets": "23 + 9 PASS / 0 FAIL（ATTACH-* 模块+集成）",
+    "e2eElectron": "62 PASS / 0 FAIL（含四工作区、设置、细分日志≥12px、悬浮窗）",
+    "e2eCrash": "12 PASS / 0 FAIL",
+    "build": "PASS",
+    "r42Extra": "21 PASS / 0 FAIL（任务书补充验收：A3 hash 冻结/A4 owner 决策/A5 artifact 摘要/A6 revision 去重/A7 session revoke）",
+    "e2eR43": "15 PASS / 0 FAIL（恢复四决策/owner/失败可见）",
+    "e2eR44": "10 PASS / 0 FAIL（completion 崩溃恢复/悬浮语义状态；R8 的 3 FAIL 已关闭）",
+    "e2eR45": "21 PASS / 0 FAIL（Galgame/角色监护/预算/凭据/悬浮状态链）",
+    "r45Core": "G1 21 + G2 21 + G3 23 + G4 21 + G5 14 = 100 PASS / 0 FAIL",
+    "uiContracts": "9 PASS / 0 FAIL",
+    "r43Suites": "r43c 41 / r43ci 9 / r43x 48 / r43g2 14 / r43g6 10 / r43f 6 全 PASS",
+    "soak": "延长跑 60 轮 596 断言 PASS（mock synthetic）"
+  },
+  "items": [
+    {
+      "id": "G0-1",
+      "title": "novelv2 创建项目后必须写出可解析 manifest.json",
+      "state": "verified",
+      "testIds": [
+        "gate0-regressions:G0-1"
+      ],
+      "commit": "bef19f58",
+      "notes": "saveManifest 真正原子写 manifest.json；bible.json 原子写；自定义场景 addScene 入册"
+    },
+    {
+      "id": "G0-2",
+      "title": "自定义 scenes 创建不崩溃，场景顺序/状态/数量正确",
+      "state": "verified",
+      "testIds": [
+        "gate0-regressions:G0-2"
+      ],
+      "commit": "bef19f58",
+      "notes": "自定义 scenes 不再对未入册 SceneCard 调 applySceneCommit；sceneNo/status/version 正确"
+    },
+    {
+      "id": "G0-3",
+      "title": "单作品语料按章节 group-aware 划分，example/holdout 非空",
+      "state": "verified",
+      "testIds": [
+        "gate0-regressions:G0-3"
+      ],
+      "commit": "bef19f58",
+      "notes": "完成"
+    },
+    {
+      "id": "P0-01",
+      "title": "只读命令白名单可绕过 workspace 路径权限（shell:true + startsWith 规则）",
+      "state": "verified",
+      "testIds": [
+        "gate1-security:CMD-*",
+        "r42p:SEC-PERM-OWNER-01"
+      ],
+      "commit": "8a565c2",
+      "notes": "runCommand 弃 shell:true 改 argv；parseCommandLine 拒绝未引用元字符；type/findstr/dir 原生实现+realpath containment；记忆规则 argv 精确匹配防前缀放大；git 危险选项禁用；旧正则规则失效"
+    },
+    {
+      "id": "P0-02",
+      "title": "IPC 无统一 sender 鉴权与 schema（attachments:read 任意路径读、settings baseUrl 可改）",
+      "state": "verified",
+      "testIds": [
+        "gate1-security:IPC-*",
+        "gate1-security:fileContext:open"
+      ],
+      "commit": "8a565c2",
+      "notes": "R4.1：settings patch typed union（未知 key/恶意 endpoint/off 拒绝）；权限 off 走 volatile lease 不落盘；FileRef 模型读取统一 policy + 生命周期 revoke；残余：S-04 取消恢复语义、JSONL 迁移、Context dry-run（R4.2）"
+    },
+    {
+      "id": "P0-03",
+      "title": "novelv2 确定性崩溃、重复写入与版本损坏",
+      "state": "partial",
+      "testIds": [
+        "gate0-regressions:G0-1",
+        "gate0-regressions:G0-2"
+      ],
+      "commit": "bef19f58",
+      "notes": "manifest/自定义 scenes/版本双增/重复 append/commitVersion 吞错/charCount 恒 0/aborts 覆盖/伏笔阻塞已修复；停止/恢复 UI、跨重启恢复、resume 入口仍缺（Gate 4）"
+    },
+    {
+      "id": "P0-04",
+      "title": "统一持久化 RunEngine 未接入主链路，DB 不是事实源",
+      "state": "verified",
+      "testIds": [
+        "r42a:PERSIST-ATOMIC-02",
+        "gate2-db:G2-*"
+      ],
+      "commit": "3764a56",
+      "notes": "RunKernel 主链 + 增量事件协议（无重复）+ terminal once + canonical session（跨重启恢复 E2E 通过）；残余：强杀恢复 E2E、side_effect_unknown、reasoning 事件（R4.2）"
+    },
+    {
+      "id": "P0-05",
+      "title": "前端终态判断提前解锁，会话并发串写",
+      "state": "verified",
+      "testIds": [
+        "r41:B-04/PERSIST-RESTART-01",
+        "e2e-electron:E2E-9"
+      ],
+      "commit": "8a565c2",
+      "notes": "chat:start 改 invoke ack（{runId,status:queued}）+ 幂等去重（startedChats）；ack 前不清草稿，失败自动回滚乐观状态；事件终态/plan_ready 只解锁当前 runningId（防迟到事件清新 run）；isFinal 的 length 判断改用消息 runConfig 不再读全局 longMode；UiMessage 增加 runConfig 快照"
+    },
+    {
+      "id": "P0-06",
+      "title": "DeepSeek V4 工具调用 transcript 跨轮丢失",
+      "state": "verified",
+      "testIds": [
+        "e2e-electron:E2E-5 工具两轮 transcript 重建",
+        "r41-regressions:B-05"
+      ],
+      "commit": "8a565c2",
+      "notes": "tool transcript 跨轮持久（DB turns 重建 role=tool 消息 + tool_call_id）已由 E2E 验证"
+    },
+    {
+      "id": "P0-07",
+      "title": "Galgame 自动修复静默写错文件、无 base hash/唯一 anchor/原子提交/回滚",
+      "state": "implemented",
+      "testIds": [
+        "gate1-security:S-6",
+        "gate1-security:S-7",
+        "gate1-security:S-8"
+      ],
+      "commit": "bef19f58",
+      "notes": "validatePatch 强制 game/ 前缀+防穿越+操作上限；applyRenpyPatch realpath containment+anchor 唯一+baseSha256+写前备份硬失败+原子 rename；repairLoop 默认 propose 只出提案不写盘；readSnippets containment"
+    },
+    {
+      "id": "P0-08",
+      "title": "EPUB zip bomb 防护顺序无效，解析运行在 Electron 主进程",
+      "state": "partial",
+      "testIds": [
+        "gate1-security:S-5"
+      ],
+      "commit": "bef19f58",
+      "notes": "preflightZip 中央目录预检已实现（条目/单条64MB/总200MB/压缩比200x），损坏 zip fail closed；PDF/docx 隔离 utilityProcess 未做（残余风险）"
+    },
+    {
+      "id": "P0-09",
+      "title": "交接文档状态失真（矛盾状态表）",
+      "state": "verified",
+      "testIds": [
+        "status.json 重写为 R4.2 权威视图（唯一状态源）"
+      ],
+      "commit": "0191fcc",
+      "notes": "code-bundle.txt 已重生成（含 commit 头）；docs/status.json + STATUS.md 唯一状态表已建立；PROJECT_REVIEW/REMEDIATION 顶部横幅与矛盾修正完成；三项回归红线已固化（6 FAIL 先红后绿待修复）"
+    },
+    {
+      "id": "P1-01",
+      "title": "AgentRunEngine 自身不可直接启用（DB 写放大/错误幂等/取消不协作/恢复丢 partial）",
+      "state": "verified",
+      "testIds": [
+        "r42r:RECOVERY-DECIDE-*",
+        "r41c:S-04-*",
+        "r42a:PERSIST-ATOMIC-02"
+      ],
+      "commit": "7bdac5f",
+      "notes": "AgentRunEngine 自身修复完成：流节流（250ms/4KB 批量 checkpoint）、协作取消（cancelling+stopping+5s 兜底）、禁用 name+args 幂等复用（防读后复用旧结果）、restore 保留 partial 内容不重写；引擎仍未接入生产主链（P0-04 残余）；toolExecutor 仍未接收 AbortSignal（B-01 残余）"
+    },
+    {
+      "id": "P1-02",
+      "title": "Style V2 高保真核心不可用/不可证明",
+      "state": "partial",
+      "testIds": [
+        "gate0-regressions:G0-3"
+      ],
+      "commit": "bef19f58",
+      "notes": "切分根因已修（group-aware 章节分组）；排名公式重复计权已修；防复制改全库对照（profile+example+holdout，800KB 预算）；chooseCandidate 归属校验+revise span 漂移拒绝+job 配置快照+停用词过滤+skeleton 默认叙事功能已实现；provenance 元数据（author/license/offset）、background baseline 前端入口、盲评数据仍未完成"
+    },
+    {
+      "id": "P1-03",
+      "title": "safeStorage 与设置事务语义不适合公开工具",
+      "state": "partial",
+      "testIds": [],
+      "commit": "bef19f58",
+      "notes": "safeStorage fail closed + 原子设置（temp+fsync+rename+.bak+串行队列+损坏恢复）已实现；ProviderProfile 多 profile 未做"
+    },
+    {
+      "id": "P1-04",
+      "title": "项目/Style job/Novel scene/RunInspector 无跨重启恢复体验",
+      "state": "unstarted",
+      "testIds": [],
+      "commit": "bef19f58",
+      "notes": "novel projectId 在组件 local state；style 只恢复 1 个 profile id；runs 内存 20 个；无 listRuns IPC"
+    },
+    {
+      "id": "P1-05",
+      "title": "停止/取消含义不一致，部分按钮最需要时不可用",
+      "state": "partial",
+      "testIds": [],
+      "commit": "bef19f58",
+      "notes": "chat ack/幂等（DB 持久键）/事件归属已修；novel aborts 按 scene 粒度；权限 off 特权化（10 分钟短时授权）；tool AbortSignal 未接（R4-4 残余）"
+    },
+    {
+      "id": "P1-06",
+      "title": "长输出重传全文可能 O(n²)，不能保证目标字数",
+      "state": "unstarted",
+      "testIds": [],
+      "commit": "bef19f58",
+      "notes": "length 后全文回传；非长模式也 6 轮；384K 营销文案无证据"
+    },
+    {
+      "id": "P1-07",
+      "title": "Activity 协议与可信度问题（无 toolCallId、耗时/脱敏不可信）",
+      "state": "partial",
+      "testIds": [],
+      "commit": "bef19f58",
+      "notes": "事件协议/journal/snapshot 已存在；缺 toolCallId、elapsedMs 是 run 级、redactText 破坏命令展示（shared/activity.ts:307-326）"
+    },
+    {
+      "id": "P1-08",
+      "title": "SessionStore jsonl 双事实源，写入模型不支持作品级使用",
+      "state": "unstarted",
+      "testIds": [],
+      "commit": "bef19f58",
+      "notes": "jsonl+index 第二事实源；切会话先 stop 后切 state 旧响应晚到；删除会话不加载 nextId"
+    },
+    {
+      "id": "P1-09",
+      "title": "供应链与发布保障缺失",
+      "state": "unstarted",
+      "testIds": [],
+      "commit": "bef19f58",
+      "notes": "private:true；无 LICENSE/README/SECURITY/CONTRIBUTING/CHANGELOG/CI/SBOM/签名/fuses；仅 win 目标；无安装包测试"
+    },
+    {
+      "id": "P1-10",
+      "title": "Benchmark 只是草案，脚本与结果不存在",
+      "state": "verified",
+      "testIds": [
+        "gate5-benchmark:G5-*"
+      ],
+      "commit": "8a565c2",
+      "notes": "scripts/benchmark.ts 框架已建立（指标结构/任务集/策略对比/门槛判定），mock 模式管道验证通过；真实 API 模式待接线，结果不存在，禁止任何性能宣称"
+    },
+    {
+      "id": "P2-01",
+      "title": "固定双侧栏违背信息架构要求（280px 功能栏）",
+      "state": "verified",
+      "testIds": [
+        "e2e:E2E-2 模式 popover 键盘操作",
+        "e2e:E2E-3 1280/1024/800 响应式",
+        "e2e:E2E-6 四工作区中央画布"
+      ],
+      "commit": "ui-takeover-working-tree",
+      "notes": "模式切换位于 Composer 底栏；Agent 聊天全宽；长文/风格/Galgame 使用中央画布与阶段导航；800px 会话栏转 overlay 且 Composer 无溢出。"
+    },
+    {
+      "id": "P2-02",
+      "title": "视觉语言 AI 模板味（渐变/徽章/Emoji/彩色 chip/小字）",
+      "state": "verified",
+      "testIds": [
+        "e2e:E2E-3 视口/截图",
+        "e2e:E2E-5 运行详情与细分日志正文≥12px",
+        "e2e:E2E-6 设置/权限/模式细分页面",
+        "ui:contracts 44 PASS / 0 FAIL (2026-09-26)"
+      ],
+      "commit": "ui-takeover-working-tree",
+      "notes": "黑色极简视觉第二轮完成：移除英文眉题、数字步骤、零值徽章、Emoji 工具图标与卡片堆叠；表单/按钮约13px、日志/命令输出12.5px、正文14px；设置、权限、运行详情、深写与悬浮窗均经截图复核。"
+    },
+    {
+      "id": "P2-03",
+      "title": "Composer 附件/提交竞态（无 ack、草稿提前清空）",
+      "state": "partial",
+      "testIds": [
+        "e2e:E2E-4",
+        "e2e:E2E-5",
+        "e2e:E2E-7",
+        "e2e:E2E-8"
+      ],
+      "commit": "bef19f58",
+      "notes": "发送 ack/幂等（DB 持久键）/事件归属/附件状态机（parsing/ready/failed+重试）/取消收敛均已实现并 E2E 验证"
+    },
+    {
+      "id": "P2-04",
+      "title": "流式输出强制滚底",
+      "state": "partial",
+      "testIds": [],
+      "commit": "bef19f58",
+      "notes": "滚动锚定已实现：距底<100px 才跟随 + 浮动回到最新按钮；虚拟列表性能优化未做"
+    },
+    {
+      "id": "P2-05",
+      "title": "设置与侧栏参数即时保存无一致错误反馈",
+      "state": "partial",
+      "testIds": [],
+      "commit": "bef19f58",
+      "notes": "普通字段 draft 延迟提交已实现；slider 每格 IPC 写；thinking 仍展示被忽略参数"
+    },
+    {
+      "id": "P2-06",
+      "title": "功能面板是表单长墙",
+      "state": "verified",
+      "testIds": [
+        "e2e:E2E-6 四工作区与设置分区",
+        "e2e:E2E-3 800px 响应式"
+      ],
+      "commit": "ui-takeover-working-tree",
+      "notes": "长文三阶段、风格三步、Galgame 三流程、Settings 六分类已交付；空状态、设置行和二级日志改为低框线层级。"
+    },
+    {
+      "id": "P2-07",
+      "title": "Renderer 单包 2.71MB（highlight.js 全量、无拆包）",
+      "state": "implemented",
+      "testIds": [
+        "npm run build：renderer 2,785.49kB → 1,394.92kB；517 → 335 modules"
+      ],
+      "commit": "ui-takeover-working-tree",
+      "notes": "highlight.js 改 core + 11 种按需语言，renderer 体积减少约49.9%。仍为单主 chunk 1.39MB，ReactMarkdown/remarkGfm 尚未异步拆包。"
+    },
+    {
+      "id": "P2-08",
+      "title": "可访问性与键盘体验不足",
+      "state": "verified",
+      "testIds": [
+        "ui:contracts 44 PASS / 0 FAIL (2026-09-26)",
+        "e2e:E2E-2 键盘模式选择/Escape",
+        "e2e:E2E-5 日志正文≥12px",
+        "e2e:E2E-6 permission radiogroup/listbox/switch"
+      ],
+      "commit": "ui-takeover-working-tree",
+      "notes": "自定义 Select/Switch/ConfirmDialog 和 focus trap 已接入；权限项为 radio 语义、工具详情为 button+aria-expanded；日志正文硬性≥12px。仍需完整 screen reader/NVDA 人工验收。"
+    },
+    {
+      "id": "P2-09",
+      "title": "Activity/空状态文案营销化",
+      "state": "implemented",
+      "testIds": [
+        "UI screenshot review 2026-08-13"
+      ],
+      "commit": "ui-takeover-working-tree",
+      "notes": "工作区英文眉题、营销式说明、Emoji 工具图标和重复标题已移除；状态文案优先表达当前行为。产品定位现统一为“文本写作助手”，不再使用模型特化平台表述；模型配置中的实际型号保持不变。"
+    },
+    {
+      "id": "REL-01",
+      "title": "开源发布工程（LICENSE/README/CI/签名/三平台/隐私/威胁模型）",
+      "state": "unstarted",
+      "testIds": [],
+      "commit": "bef19f58",
+      "notes": "依赖审计完成前不擅自决定最终许可证；AGPL-3.0 与 Apache-2.0 决策记录"
+    },
+    {
+      "id": "R42-A1",
+      "title": "真正原子的 chat accept（PERSIST-ATOMIC-02：session+run+user turn+幂等键单事务；事务提交前不调用模型/工具；并发单胜无孤儿；kill 窗口回滚）",
+      "state": "verified",
+      "testIds": [
+        "r42-atomic:PERSIST-ATOMIC-02 (23 PASS)"
+      ],
+      "commit": "3764a56",
+      "notes": "acceptChatStart BEGIN IMMEDIATE 单事务；engine.start(alreadyCreated) 只装载不创建；chatStart.ts 编排（事务失败 engine 零调用）"
+    },
+    {
+      "id": "R42-A2",
+      "title": "owner-scoped permission lease（SEC-PERM-OWNER/REVISION/TERMINAL：window/session/run 隔离；窗口销毁/run terminal/到期/撤销/重启立即失效；旧 timer 不撤销新 lease）",
+      "state": "verified",
+      "testIds": [
+        "r42-perm:SEC-PERM-OWNER-01",
+        "r42-perm:SEC-PERM-REVISION-01",
+        "r42-perm:SEC-PERM-TERMINAL-01 (18 PASS)"
+      ],
+      "commit": "b63a227",
+      "notes": "全局 volatile off 移除；decide(type,target,identity)；applyFullAccess 绑定 sender+session+活跃 run；permissions:get 按 sender 显示"
+    },
+    {
+      "id": "R42-A3",
+      "title": "Versioned RunExecutionSnapshot（provider/目录/galgame/mode 契约/记忆快照/prompt hash 全冻结；credential origin 绑定 fail-closed；恢复版本门）",
+      "state": "verified",
+      "testIds": [
+        "r42-snapshot:SNAPSHOT-02-01..04 (24 PASS)"
+      ],
+      "commit": "de14a48",
+      "notes": "SNAPSHOT_SCHEMA_VERSION=2；运行中改设置第二轮请求不变；快照版本不兼容→recovery_required(snapshot_version_incompatible)"
+    },
+    {
+      "id": "R42-A4",
+      "title": "recovery decision gate（confirm_applied/retry_not_applied/rollback_then_retry/abandon；非幂等禁自动 retry；decision/actor/checkpoint durable；迟到结果不覆盖；recovery_required 不静默提升）",
+      "state": "verified",
+      "testIds": [
+        "r42-recovery:RECOVERY-DECIDE-01..07 (26 PASS)"
+      ],
+      "commit": "7bdac5f",
+      "notes": "runs:resume 对 recovery_required 只领养展示；runs:recoverInfo/recoverDecide IPC；rollback 经 checkpoint backupId"
+    },
+    {
+      "id": "R42-A5",
+      "title": "ContextAssembler 总预算与 context_manifest（system/memory/附件/user/工具结果全计入；单条超限截断/fail-closed；manifest 引用 message IDs 落库；run 不再复制历史正文）",
+      "state": "verified",
+      "testIds": [
+        "r42-context:CTX-TOTAL-BUDGET-01/CTX-SINGLE-OVERSIZE-01/CTX-NODUP-02/CTX-MANIFEST-01 (40 PASS)",
+        "r42-context-integration:CTX-* (11 PASS)"
+      ],
+      "commit": "f08d39e",
+      "notes": "contextAssembler 优先级：system→reserve→user→工具结果→资产→历史→摘要；硬预算兜底 fail-closed；v7 context_manifests 表"
+    },
+    {
+      "id": "R42-A6",
+      "title": "独立 usage 协议（usage chunk 与 terminal 分离；revision 递增；partial/actual 覆盖规则；terminal 后迟到 usage 丢弃；无 usage 不伪造 0）",
+      "state": "verified",
+      "testIds": [
+        "r42-usage:USAGE-CHUNK-01..05 (16 PASS)"
+      ],
+      "commit": "102dc9d",
+      "notes": "ChunkEventType 加 usage + UsageChunk（revision/kind/segmentBreakdown/cacheablePrefixHash）；renderer reducer metrics 与 lifecycle 分离"
+    },
+    {
+      "id": "R42-A7",
+      "title": "内容寻址 attachment asset（sha256 唯一 key；同路径同大小内容变更（含 mtime 恢复）不命中旧缓存；字节预算 LRU；大文本落盘对象库；缓存命中验 lease）",
+      "state": "verified",
+      "testIds": [
+        "r42-assets:ATTACH-SAME-SIZE-MUTATION-01/ATTACH-LRU-BYTES-01/ATTACH-LEASE-CACHE-01 (23 PASS)",
+        "r42-assets-integration:ATTACH-* (9 PASS)"
+      ],
+      "commit": "0191fcc",
+      "notes": "assetStore 对象库文件名=hash 无用户路径；attachmentService 统一模型读取入口；run terminal/chip 删除释放 lease"
+    },
+    {
+      "id": "R42-SUP",
+      "title": "任务书补充验收（PERSIST-ATOMIC-KILL-01 / attachment hash 冻结 / recoverDecide 窗口 owner / 工具大输出落 artifact 摘要 / usage revision 去重 / session 生命周期 revoke / bundle 生成物化）",
+      "state": "verified",
+      "testIds": [
+        "r42-extra:R42-EXTRA-A3..A7 (21 PASS)",
+        "e2e-crash:PERSIST-ATOMIC-KILL-01"
+      ],
+      "commit": "6c0c19b",
+      "notes": "A1-A7 任务书逐条复核后补全的验收点"
+    },
+    {
+      "id": "R43-G1",
+      "title": "A5 provider 消息语义修复（选择/排序分离、历史正序、tool 原子组、user last、summary 归 system、manifest fail-closed）",
+      "state": "verified",
+      "testIds": [
+        "r42-context:CTX-ORDER-01/CTX-TOOL-PAIR-01/CTX-CURRENT-LAST-01 (51 PASS)",
+        "r42-context-integration:CTX-MANIFEST-DURABLE-01/FAIL-01 (15 PASS)"
+      ],
+      "commit": "0c30871",
+      "notes": "旧历史不再倒序追加在 user 后；manifest 落库失败抛错中止；A5 语义修复：选择/排序分离、tool 原子组、manifest fail-closed；集成层验证（真实快照契约）",
+      "implementationLevel": "integrated",
+      "evidenceClass": "unit,integration"
+    },
+    {
+      "id": "R43-G2",
+      "title": "toolPolicy 双层强制 + 静态 prompt 真冻结（schema 过滤 + executor 拒绝 tool_not_allowed_by_mode；frozenSystemMessages v3）",
+      "state": "verified",
+      "testIds": [
+        "r43-toolpolicy:TOOL-SCHEMA/EXEC-ALLOWLIST/SNAPSHOT-PROFILE-FROZEN/RECOVERY-SNAPSHOT (14 PASS)"
+      ],
+      "commit": "f0fc85b",
+      "notes": "模型工具边界首次真实生效（schema 此前从未传 tools）；profile 升级不影响旧 run；toolPolicy 双层强制 + frozenSystemMessages（schema 层首次真实生效）",
+      "implementationLevel": "integrated",
+      "evidenceClass": "unit,integration"
+    },
+    {
+      "id": "R43-G3",
+      "title": "恢复 UX 真实 Electron E2E（四决策 + owner + 失败后仍可见）",
+      "state": "verified",
+      "testIds": [
+        "e2e-r43:E2E-RECOVERY-01..05 (15 PASS)"
+      ],
+      "commit": "7680c5a",
+      "notes": "mock_slow_tool seam 7s>兜底 5s 构造真实 side_effect_unknown；走复审方 UI 完整链路；恢复四决策 UI 由复审方提供；E2E 15 PASS 真实链路",
+      "implementationLevel": "user_reachable",
+      "evidenceClass": "electron"
+    },
+    {
+      "id": "R43-G4",
+      "title": "最小 CompletionController（completed 只能由外部契约产生；确定性 validator ×4 + 单调性 + 预算 + 取消优先）",
+      "state": "verified",
+      "testIds": [
+        "r43-completion:COMP-* (35 PASS)",
+        "r43-completion-integration:COMPLETE-ENGINE-01..03/COMPLETE-CANCEL-01 (9 PASS)"
+      ],
+      "commit": "324e55f",
+      "notes": "模型 finish stop 只是 candidate；无进展 blocked 不无限循环；v8 表 durable；R4.4 修复后：真实契约（无 novel 强求）、lint evidence durable、生产 fromStore 恢复、事件贯通；Galgame lint evidence 注入依赖工作台（UI-3）",
+      "implementationLevel": "integrated",
+      "evidenceClass": "unit,integration,electron"
+    },
+    {
+      "id": "R43-G5",
+      "title": "角色监护 subagent 实验版（Director/Custodian/DraftWriter/ContinuityEditor；token governor；默认关闭）",
+      "state": "implemented",
+      "testIds": [
+        "r43-char:CHAR-* (41 PASS)"
+      ],
+      "commit": "78a87b3",
+      "notes": "监护者绝不写正文；A/B/C benchmark 证明优势后才允许默认开启；实验接线完成（preload bridge + stateStore 原子提交）；真实 CHAR-IMPROVEMENT 质量数据 not_run（需真实 benchmark）（state=implemented：真实质量数据/真实 benchmark 未运行，not_run）",
+      "implementationLevel": "integrated",
+      "evidenceClass": "unit,integration"
+    },
+    {
+      "id": "R43-G6",
+      "title": "provider capability profile + soak/真实 benchmark 管道",
+      "state": "implemented",
+      "testIds": [
+        "r43-capability:PROVIDER-CAPABILITY-01 (10 PASS)",
+        "soak-smoke mock 26 PASS",
+        "benchmark-real mock 汇总（real blocked 待 key）"
+      ],
+      "commit": "8174505",
+      "notes": "未知 provider 保守 128K 不默认 1M；真实 benchmark/soak = not_run（需 API key 与长时环境）；capability profile 集成；真实 benchmark/soak 完整版 not_run（需 DEEPSEEK_API_KEY 与长时环境）；mock 管道已验证（state=implemented：真实质量数据/真实 benchmark 未运行，not_run）",
+      "implementationLevel": "core",
+      "evidenceClass": "unit,mock_pipeline"
+    },
+    {
+      "id": "R45-G1",
+      "title": "封死 Galgame completion 绕过（契约 fail-closed + lint 绑定业务 run + manifest hash）",
+      "state": "user_reachable",
+      "testIds": [
+        "r45:g1 GAL-* (21 PASS)",
+        "r43ci COMP-PROD-GALGAME-LINT-01 (24 PASS)",
+        "e2e:r45 GAL-E2E-01/02 (6 PASS)"
+      ],
+      "commit": "852fcd0",
+      "notes": "galgame 契约 requiredArtifacts(renpy≥1) fail-closed；renpyLint validator 无条件（无产物 missing_artifact）；computeManifestHash（路径+内容 hash+排序）gate 与 lint 写入侧同公式；galgameEvidence 服务（canLintRunForBusiness owner 约束 + runGalgameLintForRun 写 run_evidence）；写盘工具后自动登记 artifact + 自动 lint；galgame:lintRun IPC。真实 Ren'Py SDK 的 lint ok → completed 路径未在 E2E 验证（Windows 无编译器造不出 exit-0 假 SDK），集成 GAL-LINT-RUN-BIND-01 覆盖；lint 失败 → waiting_user 等待修复（Gate 4 语义）",
+      "implementationLevel": "user_reachable",
+      "evidenceClass": "unit,integration,electron"
+    },
+    {
+      "id": "R45-G2",
+      "title": "角色监护开关真实接线（payload → snapshot → engine 场景级监护 hook）",
+      "state": "user_reachable",
+      "testIds": [
+        "r45:g2 EXP-* (21 PASS)",
+        "e2e:r45 EXP-E2E-01 (5 PASS)"
+      ],
+      "commit": "15442b9",
+      "notes": "chatStartSchema 结构化 deepWriteExperiment（仅 longwrite，安全上限）；快照冻结 enabled/maxConcurrent/subagentTokenRatio/characters；AgentRunEngine 每轮（round≥2 有正文）调用实验 hook——真实 runCustodian（streamChat + 真实 usage 入 ledger），监护者只产结构化建议（唯一正文作者仍是主模型），失败降级不阻断主链；无卡 degraded；强杀恢复幂等。renderer 开关行保留在复审方 UI 工作树（依赖未跟踪 Switch 组件，按保护约定未提交）；角色检查阶段以 validating+title 呈现（RunPhase 全键 Record、renderer 受保护）",
+      "implementationLevel": "user_reachable",
+      "evidenceClass": "unit,integration,electron"
+    },
+    {
+      "id": "R45-G3",
+      "title": "Completion 恢复状态精确化（repairAttempts/startedAt/finding identity 分离 + v10 迁移）",
+      "state": "user_reachable",
+      "testIds": [
+        "r45:g3 COMP-* (23 PASS)",
+        "r43ci 24 PASS（旧断言按新契约更新）"
+      ],
+      "commit": "51384ac",
+      "notes": "CompletionEvaluation durable 增加 repairAttempts/startedAt/previousFindingKeys/currentFindingKeys/latestMeasuredChars/lastDeltaChars；fromStore 逐字段恢复（禁止 revision 推导）；墙钟起点=contract.createdAt（重启不漂移）；below_target 稳定 hash 不含 measured（8000/8100 同 identity）；零增长/低增长判定与 identity 分离（delta 单独记录）；旧格式 evaluation 明确迁移规则（attempts=0、起点契约时间）并重写落库；v10 迁移推进版本 + 一致性索引",
+      "implementationLevel": "user_reachable",
+      "evidenceClass": "unit,integration"
+    },
+    {
+      "id": "R45-G4",
+      "title": "ContinuationPolicy 与可配置预算（validator/policy 分离 + waiting_user + 设置闭环）",
+      "state": "user_reachable",
+      "testIds": [
+        "r45:g4 POLICY-* (21 PASS)",
+        "r43c 41 / r43ci 24（旧 blocked 断言按 pause_user 语义更新）",
+        "e2e:r45 SETTINGS-E2E-01 (5 PASS)"
+      ],
+      "commit": "6350d51",
+      "notes": "ContinuationPolicy 纯函数（continue/pause_user/blocked/cancelled；低进展/预算耗尽优先 pause_user）；RunStatus/CompletionState 新增 waiting_user（挂起非终态，可恢复列表可见、可 resume/可取消）；maxRepairAttempts 与目标规模推导一致（稳定增长 10 轮不误杀）；DEFAULT_SETTINGS 安全默认（token 200K）、SETTINGS_KEYS/validateSettingField 补全、快照冻结预算、restore 不漂移；重复率（8-gram）供低效续写判定。设置 UI 入口属复审方（字段规格见 FEEDBACK_R8）",
+      "implementationLevel": "user_reachable",
+      "evidenceClass": "unit,integration,electron"
+    },
+    {
+      "id": "R45-G5",
+      "title": "credential slot/version 与 rollback roots 边界",
+      "state": "user_reachable",
+      "testIds": [
+        "r45:g5 CRED-*/ROLLBACK-* (14 PASS)",
+        "e2e:r45 CRED-E2E-01 (2 PASS)"
+      ],
+      "commit": "797960d",
+      "notes": "CredentialRegistry：按 (origin,model) 稳定 slot + version 递增；快照只存 ref（不存明文 key）；resolve 同一 version，缺失/更换 → CredentialMissingError fail-closed（绝不退回当前任意 key）→ engine waiting_user/auth_required；同 key 幂等；terminal 释放 lease；rollback/checkpoint roots 只从 run 快照 + 固定内部目录（buildRollbackRoots 纯函数），不混入 currentSettings；checkpoint:restore 支持可选 runId",
+      "implementationLevel": "user_reachable",
+      "evidenceClass": "unit,integration,electron"
+    },
+    {
+      "id": "R46-G1",
+      "title": "真实 DeepSeek V4 Flash 基准（5 组任务 × repeats × 对照）",
+      "state": "not_run",
+      "testIds": [
+        "benchmark-real.ts TASK_SET 覆盖 5 组（synthetic mock 可复算）"
+      ],
+      "commit": "9abe255",
+      "notes": "无真实 API key（环境事实）——任务书明确 not_run 不能因脚本能启动标 verified；对照组（DeepWriter 普通/专用模式）未接入 benchmark（裸 API 基线可测）；mock 数据单独标注 synthetic；盲评未进行（需真实产物+所有者）",
+      "implementationLevel": "core",
+      "evidenceClass": "mock_pipeline"
+    },
+    {
+      "id": "R46-G2",
+      "title": "多人物深度写作主链（Scene Router/多 Custodian/并发/取消/幂等提交）",
+      "state": "user_reachable",
+      "testIds": [
+        "r46:g2 CHAR-MULTI-01/LIMIT-01/CANCEL-01/CRASH-02/KNOWLEDGE-02/DEGRADE-01/BUDGET-01 (22 PASS)"
+      ],
+      "commit": "b9885d0",
+      "notes": "cards 集合输入；worker pool 并发上限真实作用于在途 Promise；signal 取消收敛+不入账+不写状态；saveSceneCommit 幂等（恢复不重复提交）；degraded 证据（角色检查部分降级）；真实质量提升仍 not_run（需盲评）",
+      "implementationLevel": "user_reachable",
+      "evidenceClass": "unit,integration"
+    },
+    {
+      "id": "R46-G3",
+      "title": "防止 Agent 自欺式完成（requiredFiles/fileEvidence 产物证据）",
+      "state": "user_reachable",
+      "testIds": [
+        "r46:g3 COMP-EVIDENCE-01/01b/ARTIFACT-01/REN-PY-01/REMAINING-01/RECOVERY-02 (13 PASS)"
+      ],
+      "commit": "748ec76",
+      "notes": "文件缺失→missing_file；损坏/hash 漂移/内容不足→file_corrupt；remainingWork 与 validator 可复算；恢复不跳过未通过 validator；契约 requiredFiles 贯通（chatStart→snapshot→gate 注入 artifactContents）",
+      "implementationLevel": "user_reachable",
+      "evidenceClass": "unit,integration"
+    },
+    {
+      "id": "R46-G4",
+      "title": "真实 Ren'Py 闭环（真实 SDK 8.5.3）",
+      "state": "real_validated",
+      "testIds": [
+        "r46:g4 G4-RENPY-01 (10 PASS，真实 SDK)"
+      ],
+      "commit": "ba41efc",
+      "notes": "真实 SDK 验证：扫描/真实 lint 检出/诊断定位（File x.rpy, line N）/修复后 0 errors/manifest 落盘/恢复语义；修复 lintRenpyProject 参数顺序（<project> lint，旧顺序在真实 SDK 失败——fake SDK 掩盖）；gate4 23 PASS 回归",
+      "implementationLevel": "real_validated",
+      "evidenceClass": "unit,integration,real_sdk"
+    },
+    {
+      "id": "R46-G5",
+      "title": "Windows 生命周期与稳定性（R13：生产等价退出修复 + production parity）",
+      "state": "real_validated",
+      "testIds": [
+        "e2e:r46:g5 最终 HEAD 三轮：28/28、28/28、28/28（每轮 production parity + 六状态，0 forced/timeout）",
+        "e2e:r46:g5 工具闭环：真实 registry 前置 + child_process_tree_terminated killed>=1 remaining=0 + 退出后进程树无孤儿",
+        "e2e:r43 回归 15/15 PASS（recovery 语义未回归）",
+        "production 权限初始化 + 真实 app.quit：修复前 0/8，修复后 10/10 natural_graceful_close"
+      ],
+      "commit": "ecc207f",
+      "notes": "Codex R13 接管确认两个确定性根因：idle 协调器在首个 before-quit 回调内同步重入 app.quit；生产 permissionManager 非空时 closed handler 读取已销毁 win.webContents.id，而 test null 旁路掩盖异常。修复为 setImmediate 延后协调器、捕获 mainWebContentsId、删除 test 权限旁路；G5 E2E 改用真实 app.quit 并新增 NODE_ENV=production 权限初始化哨兵。最终三轮 manifest 同 HEAD/同 source+bundle hash，Electron 43.3.0，每轮 28/28；无应用内强杀假绿。",
+      "implementationLevel": "real_validated",
+      "evidenceClass": "unit,electron,integration",
+      "evidence": {
+        "rootCause": "两个确定性缺陷叠加：idle shutdown coordinator 在首次 before-quit 回调内同步重入 app.quit；production permissionManager 非空时 closed handler 读取已销毁的 win.webContents.id，而 test null 旁路掩盖异常",
+        "fix": [
+          "before-quit 通过 shutdownScheduled 去重，并以 setImmediate 在当前回调返回后启动统一协调器",
+          "窗口创建时捕获 mainWebContentsId；closed 后不再读取已销毁 Electron 对象",
+          "删除 NODE_ENV=test 不创建 permissionManager 的旁路",
+          "E2E 改用真实 electron.app.quit，并新增 NODE_ENV=production 权限加载哨兵"
+        ],
+        "reports": "docs/r46-g5-report-r13/run-12287428、run-12312752、run-12338067（同 HEAD/同 source+bundle hash，含 manifest/outcome/trace/progress）"
+      }
+    },
+    {
+      "id": "R46-G6",
+      "title": "UI 与悬浮窗（Codex 执行）",
+      "state": "real_validated",
+      "testIds": [
+        "ui:contracts 44 PASS / 0 FAIL (2026-09-26)",
+        "e2e 64 PASS / 0 FAIL",
+        "e2e:r43 15 PASS / 0 FAIL",
+        "e2e:r44 10 PASS / 0 FAIL",
+        "e2e:r45 21 PASS / 0 FAIL"
+      ],
+      "commit": "67ad56a",
+      "notes": "Codex 完成视觉与交互收敛：悬浮窗 320×84 双层信息卡，上层项目名 16px/600，下层状态 13px/400；状态只用自然语言，不展示校验、字数、Token 或步骤精确值。Composer 状态栏将上下文精确数值改为充足/较多/接近上限，详细值保留在点击后的上下文详情。整体颜色、边界、圆角和系统字体做柔化；1280/1024/800、四工作区、设置、恢复、完成、取消与悬浮链均经真实 Electron E2E 和截图人工复核。",
+      "implementationLevel": "real_validated",
+      "evidenceClass": "unit,electron"
+    },
+    {
+      "id": "R46-G7",
+      "title": "发布工程（候选版，不强行发布）",
+      "state": "implemented",
+      "testIds": [
+        "release:asar（无 dist → exit 2 提示）",
+        "release:sbom（SBOM_DEPENDENCIES.md 生成）"
+      ],
+      "commit": "9abe255",
+      "notes": "ASAR 内容检查 6 项断言（API key/fixture/bundle/绝对路径）；SBOM 生产 14/开发 13 包+供应链风险待人工确认；安装矩阵五类均 not_run（需真实安装环境）；SmartScreen 无签名风险明确；版本 0.2.0 保持；1.0 需发布 Gate 全通过+复审批准",
+      "implementationLevel": "implemented",
+      "evidenceClass": "unit"
+    },
+    {
+      "id": "REL-1.2.5-BETA",
+      "title": "v1.2.5 Beta 文档冻结（Windows x64）",
+      "state": "implemented",
+      "testIds": [],
+      "commit": "v1.2.5-beta-freeze",
+      "notes": "仅为 Beta/prerelease 文档与版本字段准备，不具备 RC、正式发布或 1.0 状态；package.json 与 package-lock.json 已升为 1.2.5，README 与 RELEASE_NOTES_1.2.5.md 已更新；真实 Provider、真实质量 benchmark、blind review、2h soak、clean install/upgrade/uninstall、NVDA、商业代码签名均 not_run；未签名可能触发 SmartScreen；未创建 RELEASE_METADATA，等待真实制品。",
+      "implementationLevel": "documentation",
+      "evidenceClass": "docs"
+    }
+  ]
+}

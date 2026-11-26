@@ -1,0 +1,29 @@
+{
+  "schemaVersion": 1,
+  "package": {
+    "name": "dingbat-to-unicode",
+    "version": "1.0.1",
+    "license": "BSD-2-Clause",
+    "integrity": "sha512-98l0sW87ZT58pU4i61wa2OHwxbiYSbuxsCBozaVnYX2iCnr3bLM3fIes1/ej7h1YdOKuKt/MLs706TVnALA65w=="
+  },
+  "sourceCommit": "a89b69198c2dd030b097cbf44b4eb7dd8b85722d",
+  "sourceUrl": "https://raw.githubusercontent.com/mwilliamson/dingbat-to-unicode/a89b69198c2dd030b097cbf44b4eb7dd8b85722d/js/LICENSE",
+  "upstreamManifest": {
+    "sourceUrl": "https://raw.githubusercontent.com/mwilliamson/dingbat-to-unicode/a89b69198c2dd030b097cbf44b4eb7dd8b85722d/js/package.json",
+    "name": "UPSTREAM.package.json",
+    "size": 1009,
+    "sha256": "05885cd8d335f8ec91f371755f70368c7133789908c1b21f89ba75115f7f9344"
+  },
+  "notice": {
+    "name": "LICENSE",
+    "size": 1304,
+    "sha256": "1013cef4b629a3c7eaf737c110fb5bebbf3abbc16e154d769468d71c3653fa37"
+  },
+  "retrievedAt": "2026-11-25T03:40:47.178Z",
+  "publishedSource": {
+    "tag": "js-1.0.1",
+    "commit": "b27f259b49907f99b1b9097abba5a9668106b779",
+    "sourceUrl": "https://github.com/mwilliamson/dingbat-to-unicode/tree/b27f259b49907f99b1b9097abba5a9668106b779"
+  },
+  "scope": "The published 1.0.1 tarball and js-1.0.1 tag omit a license file. This is the original maintainer Add LICENSE commit; its upstream js/package.json still declares version 1.0.1 and BSD-2-Clause. This retained upstream notice is a supplement, not a file claimed to have shipped in the npm tarball. It is not reused for another package version."
+}

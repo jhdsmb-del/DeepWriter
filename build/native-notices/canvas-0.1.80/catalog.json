@@ -1,0 +1,100 @@
+{
+  "schemaVersion": 1,
+  "packageName": "@napi-rs/canvas-win32-x64-msvc",
+  "packageVersion": "0.1.80",
+  "parentName": "@napi-rs/canvas",
+  "parentVersion": "0.1.80",
+  "parentCommit": "dda1b258dac667b4c66b94bbd4d70aa79ea4503a",
+  "skiaCommit": "1fdbea293a53b270e3f5e74c92cc6670d68412ff",
+  "icuCommit": "364118a1d9da24bb5b770ac3d762ac144d6da5a4",
+  "icuVersion": "74.2",
+  "integrity": "sha512-Z8jPsM6df5V8B1HrCHB05+bDiCxjE9QA//3YrkKIdVDEwn5RKaqOxCJDRJkl48cJbylcrJbW4HxZbTte8juuPg==",
+  "runtimeResources": [
+    {
+      "name": "skia.win32-x64-msvc.node",
+      "size": 26272256,
+      "sha256": "30646342fc284109aa9542155287d37147c97132d5168cf621f851a9c69e0c99",
+      "sourceUrl": "https://github.com/Brooooooklyn/canvas/releases/expanded_assets/v0.1.80",
+      "sourceCommit": "dda1b258dac667b4c66b94bbd4d70aa79ea4503a"
+    },
+    {
+      "name": "icudtl.dat",
+      "size": 10468208,
+      "sha256": "9ae98c06cbb0ea43c5cd6b5725310c008c65e46072421a1118cb88e1de9a8b92",
+      "sourceUrl": "https://chromium.googlesource.com/chromium/deps/icu/+/364118a1d9da24bb5b770ac3d762ac144d6da5a4/common/icudtl.dat?format=TEXT",
+      "sourceCommit": "364118a1d9da24bb5b770ac3d762ac144d6da5a4",
+      "transportEncoding": "base64"
+    }
+  ],
+  "licenses": [
+    {
+      "name": "LICENSE_CANVAS",
+      "size": 1075,
+      "sha256": "8802fecf9da4367bc23bcf20b21cc143785fc6c92b152f3fa7fbe6ce08d344d6",
+      "sourceUrl": "https://raw.githubusercontent.com/Brooooooklyn/canvas/dda1b258dac667b4c66b94bbd4d70aa79ea4503a/LICENSE",
+      "sourceCommit": "dda1b258dac667b4c66b94bbd4d70aa79ea4503a"
+    },
+    {
+      "name": "LICENSE_SKIA",
+      "size": 1507,
+      "sha256": "5f787c1dee3c56547f09ccc2906ab5f5293c4d8dd6c8654e573216c38e908dbd",
+      "sourceUrl": "https://raw.githubusercontent.com/google/skia/1fdbea293a53b270e3f5e74c92cc6670d68412ff/LICENSE",
+      "sourceCommit": "1fdbea293a53b270e3f5e74c92cc6670d68412ff"
+    },
+    {
+      "name": "LICENSE_ICU",
+      "size": 25185,
+      "sha256": "17510cf7a58b4879b887ec05a45d72cf1b73544dd9ec7e72f20110ed104229ee",
+      "sourceUrl": "https://chromium.googlesource.com/chromium/deps/icu/+/364118a1d9da24bb5b770ac3d762ac144d6da5a4/LICENSE?format=TEXT",
+      "transportEncoding": "base64",
+      "sourceCommit": "364118a1d9da24bb5b770ac3d762ac144d6da5a4"
+    }
+  ],
+  "nativeGraphCoverage": {
+    "status": "partial",
+    "unresolvedVersions": "unknown",
+    "legalCompliance": "not-assessed"
+  },
+  "parentIntegrity": "sha512-DxuT1ClnIPts1kQx8FBmkk4BQDTfI5kIzywAaMjQSXfNnra5UFU9PwurXrl+Je3bJ6BGsp/zmshVVFbCmyI+ww==",
+  "packageLocation": "node_modules/@napi-rs/canvas-win32-x64-msvc",
+  "parentLocation": "node_modules/@napi-rs/canvas",
+  "packageManifestSource": {
+    "sourceUrl": "https://raw.githubusercontent.com/Brooooooklyn/canvas/dda1b258dac667b4c66b94bbd4d70aa79ea4503a/npm/win32-x64-msvc/package.json",
+    "sourceCommit": "dda1b258dac667b4c66b94bbd4d70aa79ea4503a",
+    "size": 715,
+    "sha256": "c832c82a4532815823bc620bd9f94ae987f5b96f24fdcf9fc9ad938726715091"
+  },
+  "scope": "npm-package-level-notice-supplement",
+  "license": "MIT",
+  "sourceBindings": {
+    "skiaDeps": {
+      "sourceUrl": "https://raw.githubusercontent.com/google/skia/1fdbea293a53b270e3f5e74c92cc6670d68412ff/DEPS",
+      "sourceCommit": "1fdbea293a53b270e3f5e74c92cc6670d68412ff",
+      "size": 10021,
+      "sha256": "0ead7b96b9e8d11c0cb3b10f21107b3ae6f5495522205addb80e0a3f5968694f"
+    },
+    "icuVersionHeader": {
+      "sourceUrl": "https://chromium.googlesource.com/chromium/deps/icu/+/364118a1d9da24bb5b770ac3d762ac144d6da5a4/source/common/unicode/uvernum.h?format=TEXT",
+      "sourceCommit": "364118a1d9da24bb5b770ac3d762ac144d6da5a4",
+      "transportEncoding": "base64",
+      "size": 6480,
+      "sha256": "3e06182124f54d763b784d89cb273cb9ea4fb3279577e261c6ffbdbbb297c5ae"
+    }
+  },
+  "packagedManifest": {
+    "size": 542,
+    "sha256": "c28619e8628210a8b42833bf16d8afd98d807681c9c9691b125cb25958d764aa",
+    "derivedFromSha256": "c832c82a4532815823bc620bd9f94ae987f5b96f24fdcf9fc9ad938726715091",
+    "derivation": {
+      "implementation": "app-builder-lib/out/fileTransformer.js",
+      "version": "26.15.3",
+      "sha256": "0c4e855d5c9c6682a165c78dfc7206f35b17fd57321627cbb5259dce433c6ec9",
+      "operation": "official createTransformer removes keywords from the exact source manifest; other properties unchanged",
+      "options": {
+        "isMain": false,
+        "isRemovePackageScripts": true,
+        "isRemovePackageKeywords": true
+      }
+    }
+  }
+}

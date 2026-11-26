@@ -1,0 +1,141 @@
+{
+  "schemaVersion": 1,
+  "id": "deepwriter-eval-tasks-v1",
+  "description": "DeepWriter R19 同模型三变体对照评测任务集（数据化、版本化）。5 类任务：longform / character-consistency / style-transfer / renpy / failure-recovery。",
+  "tasks": [
+    {
+      "id": "longform-multichapter",
+      "category": "longform",
+      "title": "长篇多阶段连续写作",
+      "variants": "all",
+      "targetChars": 10000,
+      "mode": "longwrite",
+      "longMode": true,
+      "materials": ["materials/longform-world.md"],
+      "stages": [
+        {
+          "stageId": "outline",
+          "role": "user",
+          "template": "以下是长篇小说的世界观与设定（来自 {material:longform-world.md}）：\n\n{content:materials/longform-world.md}\n\n请先输出这部小说的章节大纲（分章标题 + 每章一句话梗概 + 标注伏笔埋设与回收点）。只输出大纲，不输出正文。",
+          "targetChars": 200,
+          "expectMinChars": 200
+        },
+        {
+          "stageId": "chapter",
+          "role": "user",
+          "template": "当前是第 {n} 章。请根据之前的大纲，并承接上一章的情节，写出本章正文（约 {targetCharsPerChapter} 字）。保持人物说话方式、时间线与伏笔一致。只输出本章正文，不输出任何说明文字。",
+          "carryOver": "上一阶段产出（大纲/前章正文）经 canonical transcript 回灌（不内联正文），保证章节间设定、伏笔、人物关系、摘要连续。",
+          "targetChars": 3300,
+          "expectMinChars": 800,
+          "repeats": 3
+        }
+      ],
+      "validatorRef": "longform"
+    },
+    {
+      "id": "character-consistency",
+      "category": "character-consistency",
+      "title": "三人物多轮场景一致性",
+      "variants": "all",
+      "targetChars": 300,
+      "mode": "agent",
+      "longMode": false,
+      "materials": ["materials/characters.json"],
+      "stages": [
+        {
+          "stageId": "setup",
+          "role": "user",
+          "template": "现在开始一段多人对话。以下三个人物，请严格按其设定对话与行动：\n\n{content:materials/characters.json}\n\n场景：老街面馆，傍晚。三人因十七年前的旧事聚在一起。请写出三人第一次见面交锋的场景（对话 + 叙述）。只输出场景正文。",
+          "targetChars": 200,
+          "expectMinChars": 200
+        },
+        {
+          "stageId": "scene",
+          "role": "user",
+          "template": "继续推进场景（第 {n} 轮）。保持三个人物的说话方式、已知信息与关系立场不串线：林默在追问父亲的下落，苏晚避而不答，老周欲言又止。请写出新一轮场景推进。只输出正文。",
+          "carryOver": "前一轮场景正文摘要与已知信息回灌，防止人物串线。",
+          "targetChars": 200,
+          "expectMinChars": 200,
+          "repeats": 5
+        }
+      ],
+      "validatorRef": "character-consistency"
+    },
+    {
+      "id": "style-transfer",
+      "category": "style-transfer",
+      "title": "复数语料风格迁移",
+      "variants": "all",
+      "targetChars": 500,
+      "mode": "style",
+      "longMode": false,
+      "materials": ["materials/style-sample-a.txt", "materials/style-sample-b.txt", "materials/style-sample-c.txt"],
+      "stages": [
+        {
+          "stageId": "extract",
+          "role": "user",
+          "template": "以下是三份风格样本（同一作者、同一风格维度，内容各异）：\n\n【样本 A】\n{content:materials/style-sample-a.txt}\n\n【样本 B】\n{content:materials/style-sample-b.txt}\n\n【样本 C】\n{content:materials/style-sample-c.txt}\n\n请先归纳这三份样本共同的语言特征（句式、节奏、意象、叙述视角、修辞习惯等），输出一份「风格画像」。只输出风格画像，不输出正文。",
+          "targetChars": 120,
+          "expectMinChars": 120
+        },
+        {
+          "stageId": "generate",
+          "role": "user",
+          "template": "请严格按上一阶段归纳出的「风格画像」创作一段约 500 字的文字。题材：清晨的山间车站，一个老人送别远行的孙子。要求：忠实该风格，但不得直接复刻样本中任何连续原文片段。只输出正文。",
+          "carryOver": "上一阶段的风格画像注入本轮，作为生成依据。",
+          "targetChars": 500,
+          "expectMinChars": 300
+        }
+      ],
+      "validatorRef": "style-transfer"
+    },
+    {
+      "id": "renpy-scene-branch",
+      "category": "renpy",
+      "title": "Ren'Py 场景生成与分支可达性",
+      "variants": "all",
+      "targetChars": 800,
+      "mode": "longwrite",
+      "longMode": true,
+      "materials": ["materials/characters.json"],
+      "stages": [
+        {
+          "stageId": "generate",
+          "role": "user",
+          "template": "以下为现有 Ren'Py 项目的角色定义（{content:materials/characters.json} 中抽取三位角色，分别命名为 linmo / suwan / laozhou）。\n\n请为该项目编写一个 .rpy 场景脚本：放学后的天台，苏晚向林默提起父亲旧事。要求：1）使用 define 声明三个角色；2）包含 scene/show、对话；3）至少两处 menu 选择，且每个 menu 选项都 jump 到一个可达的 label（good_end / bad_end 或其他自定义 label）；4）每个 label 段落以 return 结尾；5）严格遵守 Ren'Py 缩进与语法。只输出纯 .rpy 代码，不要解释。",
+          "targetChars": 800,
+          "expectMinChars": 400
+        }
+      ],
+      "validatorRef": "renpy"
+    },
+    {
+      "id": "failure-recovery",
+      "category": "failure-recovery",
+      "title": "失败恢复：截断续写与部分完成继续",
+      "variants": "all",
+      "targetChars": 600,
+      "mode": "longwrite",
+      "longMode": true,
+      "materials": ["materials/longform-world.md"],
+      "stages": [
+        {
+          "stageId": "truncated-continuation",
+          "role": "user",
+          "template": "以下是小说片段的前半部分（在句中断裂，模拟截断）：\n\n【前文】\n林默站在雾江坝的旧机房里，手电的光柱扫过一排锈蚀的闸门开关。他听见身后有脚步声回响。\"你不该来这里。\"来人的声音他认得，是——\n\n【任务】请从断裂处继续写完这段话，保持人物与语感一致；不要重述或复制前文的结尾（\"是——\"之后），直接从断裂处接着写。只输出续写正文。",
+          "targetChars": 150,
+          "expectMinChars": 150
+        },
+        {
+          "stageId": "partial-continue",
+          "role": "user",
+          "template": "这是接续前一步（截断续写）的继续任务。请基于此前对话历史中已完成的第一轮续写内容继续推进，补全这一章。要求：与上一轮正文衔接自然，不得整段重复上一轮已有内容，直接续写新内容。只输出续写正文。",
+          "carryOver": "上一轮产出经 canonical transcript 回灌（不内联正文），作为续写前提。",
+          "targetChars": 450,
+          "expectMinChars": 200
+        }
+      ],
+      "validatorRef": "failure-recovery"
+    }
+  ]
+}

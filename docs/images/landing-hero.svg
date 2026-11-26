@@ -1,0 +1,23 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="310" viewBox="0 0 1280 310" role="img" aria-labelledby="title desc">
+  <title id="title">DeepWriter 5.0.1 — 从资料到成稿</title>
+  <desc id="desc">桌面与命令行写作助手。查资料，理大纲，写长文，改稿件。</desc>
+  <rect width="1280" height="310" rx="20" fill="#111217"/>
+  <g font-family="Segoe UI,Microsoft YaHei,PingFang SC,sans-serif">
+    <path d="M50 49h23l13 13v39H50z" fill="none" stroke="#b5baff" stroke-width="2.5"/>
+    <path d="M73 49v14h13M59 77h18M59 87h14" fill="none" stroke="#b5baff" stroke-width="2.5"/>
+    <text x="106" y="92" font-size="54" font-weight="650" fill="#f4f4f8">DeepWriter</text>
+    <rect x="413" y="61" width="89" height="35" rx="17.5" fill="#292b42"/>
+    <text x="457.5" y="85" font-size="21" text-anchor="middle" fill="#cbd0ff">5.0.1</text>
+    <text x="50" y="163" font-size="40" font-weight="600" fill="#f4f4f8">从资料到成稿，把写作接起来。</text>
+    <text x="50" y="220" font-size="26" fill="#b4b7c5">查资料 · 理大纲 · 写长文 · 改稿件</text>
+    <text x="50" y="268" font-size="22" fill="#969aac">Windows 桌面 + CLI</text>
+    <g transform="translate(960 42)">
+      <path d="M14 19H201L231 49V233H14Z" fill="#1c1e29" stroke="#3d4059" stroke-width="2"/>
+      <path d="M201 19V49H231" fill="none" stroke="#666b98" stroke-width="2"/>
+      <text x="39" y="77" font-size="25" fill="#c4c8ff">资料</text>
+      <path d="M39 99h140M39 114h105" stroke="#555972" stroke-width="5" stroke-linecap="round"/>
+      <text x="39" y="157" font-size="25" fill="#c4c8ff">成稿</text>
+      <path d="M39 179h140M39 194h140M39 209h90" stroke="#9299d9" stroke-width="5" stroke-linecap="round"/>
+    </g>
+  </g>
+</svg>

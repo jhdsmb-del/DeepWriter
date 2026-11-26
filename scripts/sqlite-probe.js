@@ -1,0 +1,1 @@
+﻿const { app } = require('electron'); app.whenReady().then(() => { try { const { DatabaseSync } = require('node:sqlite'); const db = new DatabaseSync(':memory:'); db.exec('CREATE TABLE t(a)'); console.log('SQLITE_OK'); } catch (e) { console.log('SQLITE_FAIL:', e.message); } app.exit(0) })
