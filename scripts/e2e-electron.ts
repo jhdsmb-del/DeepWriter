@@ -879,7 +879,13 @@ async function main(): Promise<void> {
         await page6.getByRole('region', { name: 'Galgame Studio' }).waitFor({ state: 'visible' })
         await page6.screenshot({ path: path.join(SHOT_DIR, 'ui-galgame.png') })
         check('Galgame Studio region 存在', await page6.getByRole('region', { name: 'Galgame Studio' }).isVisible())
-        check('Galgame 默认进入项目创建/导入阶段并显示制作进度', await page6.getByRole('heading', { name: '创建或导入项目' }).isVisible() && await page6.getByRole('status', { name: '制作进度' }).isVisible())
+        const studio = page6.getByRole('region', { name: 'Galgame Studio' })
+        await studio.getByRole('heading', { name: '从新项目开始' }).waitFor()
+        check('Galgame 空工作室可创建或导入项目；尚无项目时不显示制作进度',
+          await studio.getByRole('textbox', { name: '项目名称' }).isVisible() &&
+          await studio.getByRole('button', { name: '选择位置并创建' }).isVisible() &&
+          await studio.getByRole('button', { name: '导入现有项目' }).isEnabled() &&
+          await studio.getByRole('navigation', { name: '制作阶段' }).count() === 0)
         await page6.screenshot({ path: path.join(SHOT_DIR, 'ui-galgame-entry.png') })
       }
     }

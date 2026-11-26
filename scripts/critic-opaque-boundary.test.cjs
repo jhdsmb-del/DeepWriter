@@ -4,6 +4,7 @@ const { existsSync, readFileSync } = require('node:fs')
 const path = require('node:path')
 const os = require('node:os')
 const http = require('node:http')
+const { PassThrough } = require('node:stream')
 const { createHash } = require('node:crypto')
 const { before, test } = require('node:test')
 const esbuild = require('esbuild')
@@ -220,6 +221,29 @@ function missingSceneEvidence(input) {
     }))
   }
 }
+// IncomingMessage chunks are bytes, not complete UTF-8 strings. Decode across
+// chunk boundaries so a split supplementary character cannot change the input.
+function readUtf8Request(request, onBody) {
+  request.setEncoding('utf8')
+  let raw = ''
+  request.on('data', chunk => { raw += chunk })
+  request.on('end', () => onBody(raw))
+}
+
+test('critic HTTP fixture preserves candidate identity and length when every UTF-8 byte is split', async () => {
+  const candidate = ('前😀\r\n' + String.fromCodePoint(0x12000) + '后').repeat(200)
+  assert.equal(Array.from(candidate).length, 1200)
+  const wire = JSON.stringify({ candidate, candidateHash: hash(candidate), candidateCodePoints: Array.from(candidate).length })
+  const request = new PassThrough()
+  const completed = new Promise(resolve => readUtf8Request(request, resolve))
+  for (const byte of Buffer.from(wire, 'utf8')) request.write(Buffer.from([byte]))
+  request.end()
+  const input = JSON.parse(await completed)
+  assert.equal(input.candidate, candidate)
+  assert.equal(input.candidateHash, hash(input.candidate))
+  assert.equal(input.candidateCodePoints, Array.from(input.candidate).length)
+})
+
 async function withEngine(criticInvalid, body, outputOverride, options = {}) {
   const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'dw-critic-opaque-'))
   const repo = api.createRepository(path.join(dir, 'run.db')); repo.open()
@@ -227,7 +251,7 @@ async function withEngine(criticInvalid, body, outputOverride, options = {}) {
   const output = outputOverride ?? capturedProse + Array.from({ length: 1200 - Array.from(capturedProse).length - 1 }, (_, index) => String.fromCodePoint(0x12000 + index)).join('') + '。'
   const requests = []
   const server = http.createServer((request, response) => {
-    let raw = ''; request.on('data', chunk => { raw += chunk }); request.on('end', () => {
+    readUtf8Request(request, raw => {
       const wire = JSON.parse(raw); requests.push(wire)
       const critic = wire.messages.find(message => message.role === 'user' && message.content?.startsWith('{"candidateHash"'))
       let content = output
