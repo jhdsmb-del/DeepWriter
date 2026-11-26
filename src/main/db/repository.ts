@@ -3213,13 +3213,14 @@ export function createRepository(dbPath: string, testHooks: RepositoryTestHooks 
       return requireDb().prepare('SELECT * FROM turns WHERE run_id = ? ORDER BY turn_seq ASC').all(runId) as unknown as TurnRow[]
     },
     getRunTurnPreviews(runId) {
-      // Text substr stops at NUL in SQLite. A bounded byte prefix preserves it;
-      // 800 UTF-8 bytes include the first 200 UTF-16 units even if decoding the
-      // suffix ends in an incomplete character. Keep the original JS slice.
-      const rows = requireDb().prepare('SELECT role,substr(CAST(content AS BLOB),1,800) AS content FROM turns WHERE run_id = ? ORDER BY turn_seq ASC').all(runId) as Array<{ role: TurnRow['role']; content: Uint8Array | null }>
+      // Cut bytes, not TEXT (SQLite substr itself stops at NUL), then let the
+      // same node:sqlite TEXT binding decode as legacy SELECT content on each
+      // runtime. Manual Buffer decoding would change older bindings' NUL handling.
+      // 800 UTF-8 bytes cover the first 200 UTF-16 units before any cut suffix.
+      const rows = requireDb().prepare('SELECT role,CAST(substr(CAST(content AS BLOB),1,800) AS TEXT) AS content FROM turns WHERE run_id = ? ORDER BY turn_seq ASC').all(runId) as Array<{ role: TurnRow['role']; content: string | null }>
       // SQLite returns NULL for a zero-byte BLOB substring. The source
       // content is NOT NULL: this is an empty turn.
-      return rows.map(row => ({ role: row.role, content: row.content === null ? '' : Buffer.from(row.content).toString('utf8').slice(0, 200) }))
+      return rows.map(row => ({ role: row.role, content: row.content === null ? '' : row.content.slice(0, 200) }))
     },
     deleteTurnsByRun(runId) {
       requireDb().prepare('DELETE FROM turns WHERE run_id = ?').run(runId)

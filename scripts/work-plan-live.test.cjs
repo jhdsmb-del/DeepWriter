@@ -46,10 +46,11 @@ test('actual preload -> narrow main handler -> SQLite reads no unrelated prose; 
     const full = repo.getTurnsByRun('task'), previews = repo.getRunTurnPreviews('task')
     assert.deepEqual(previews, full.map(turn => ({ role: turn.role, content: turn.content.slice(0, 200) })))
     assert.equal(previews[1].content.charCodeAt(199), 0xD842, 'keep the original JS UTF-16 boundary, not 200 Unicode characters')
-    assert.equal(previews[3].content, 'ab\0cd', 'embedded NUL cannot truncate a legacy preview')
+    assert.equal(previews[3].content, full[3].content.slice(0, 200), 'embedded NUL follows the same legacy TEXT binding on this Node runtime')
     assert.equal(previews[4].content, 'a'.repeat(200), 'an incomplete UTF-8 character at the byte-prefix edge cannot corrupt the first 200 units')
     assert.equal(previews[6].content, '', 'empty assistant/tool-call turns stay empty on both Node and Electron SQLite')
     assert.equal(full[0].content, texts[0], 'full repository callers retain their original API')
+    assert(selects.some(sql => /CAST\(substr\(CAST\(content AS BLOB\),1,800\) AS TEXT\)/.test(sql)), 'bounded bytes are decoded by the native TEXT binding, not a different JS decoder')
     assert.match(main, /turns: repository\.getRunTurnPreviews\(r\.run_id\)/)
     const result = { unrelatedProseUtf16Units: texts.reduce((sum, text) => sum + text.length, 0), legacyMaterializedTurnUtf16Units: full.reduce((sum, turn) => sum + turn.content.length + turn.reasoning_content.length + turn.tool_calls_json.length, 0), previewSqlByteCapPerTurn: 800, returnedPreviewUtf16Units: previews.reduce((sum, turn) => sum + turn.content.length, 0), checklistJsonUtf16Units: JSON.stringify(plan('新清单')).length, narrowSelect: selects[0] }
     console.log(JSON.stringify(result)); await fs.mkdir(path.join(root, 'out/work-plan-live'), { recursive: true }); await fs.writeFile(path.join(root, 'out/work-plan-live/sqlite-evidence.json'), JSON.stringify(result, null, 2))

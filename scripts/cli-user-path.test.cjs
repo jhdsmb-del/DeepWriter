@@ -16,10 +16,15 @@ const events = (stdout) => stdout.split(/\r?\n/).filter((line) => line.startsWit
 function launch(args, options = {}) {
   const child = spawn(process.execPath, [bundle, ...args], { cwd: options.cwd ?? root, env: { ...process.env, DEEPWRITER_API_KEY: 'synthetic-cli-key-A', ...options.env }, stdio: ['pipe', 'pipe', 'pipe'] })
   let stdout = '', stderr = ''
-  child.stdout.on('data', (data) => { stdout += data }); child.stderr.on('data', (data) => { stderr += data })
+  // For a deliberate multi-turn run, distinguish a silent child from one still emitting tool events.
+  let timedOut = ''
+  const stop = (reason) => { timedOut = reason; child.kill() }
+  const timer = setTimeout(() => stop(options.longTask ? 'no CLI progress for 15s' : 'CLI fixture exceeded 15s'), 15000)
+  const deadline = options.longTask ? setTimeout(() => stop('multi-turn fixture exceeded 60s'), 60000) : null
+  child.stdout.on('data', (data) => { stdout += data; if (options.longTask) timer.refresh() })
+  child.stderr.on('data', (data) => { stderr += data })
   child.stdin.end(options.stdin ?? '')
-  const timer = setTimeout(() => child.kill(), 15000)
-  const done = new Promise((resolve, reject) => { child.on('error', reject); child.on('exit', (code, signal) => { clearTimeout(timer); resolve({ code, signal, stdout, stderr, events: events(stdout) }) }) })
+  const done = new Promise((resolve, reject) => { child.on('error', reject); child.on('exit', (code, signal) => { clearTimeout(timer); clearTimeout(deadline); resolve({ code, signal, stdout, stderr: timedOut ? stderr + '\n' + timedOut : stderr, events: events(stdout) }) }) })
   return { child, done, stdout: () => stdout }
 }
 const run = (args, options) => launch(args, options).done
@@ -727,7 +732,7 @@ test('CLI default unlimited actual local Provider crosses sixteen; explicit sixt
   for (const finite of [false, true]) {
     const dataDir = path.join(suiteDir, finite ? 'explicit-sixteen' : 'default-unlimited')
     const start = requests.length
-    const reply = await run(['agent', '按二十份逐次工具结果完成任务', '--work-dir', workDir, ...flags(dataDir), ...(finite ? ['--max-calls', '16'] : [])])
+    const reply = await run(['agent', '按二十份逐次工具结果完成任务', '--work-dir', workDir, ...flags(dataDir), ...(finite ? ['--max-calls', '16'] : [])], { longTask: true })
     assert.equal(reply.code, finite ? 2 : 0, reply.stderr)
     const result = reply.events.find(event => event.type === 'result').data
     assert.equal(result.status, finite ? 'waiting_user' : 'completed')
