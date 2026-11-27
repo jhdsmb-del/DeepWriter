@@ -812,7 +812,11 @@ test('Goal CLI refuses false completion, autonomously delivers the file, and doe
   assert.deepEqual(goalSchemaErrors, []); assert.equal(goalTurn, 10)
   const delivered = reply.events.find(e=>e.type==='goal_answer').data.content
   assert.ok(delivered.startsWith('已保存通知.md，通知记载22:03离岸。原值班簿保留原文。'))
-  assert.ok(delivered.includes(await fs.realpath(goalPaths.notice)), '交付附上实际文件路径：' + delivered)
+  const paths = [...delivered.matchAll(/^`([^`\r\n]+)`$/gm)].map(match=>match[1])
+  assert.equal(paths.length, 1, delivered)
+  assert.ok(path.isAbsolute(paths[0]), delivered)
+  // Windows 8.3 and macOS /var are valid user-facing spellings for the same file.
+  assert.equal(await fs.realpath(paths[0]), await fs.realpath(goalPaths.notice))
   assert.deepEqual(result.goal.outcomes[0].evidence.map(e=>e.reference), ['notice-read','original-read'])
   const db = new DatabaseSync(path.join(data, 'deepwriter.sqlite'), { readOnly:true })
   try {
