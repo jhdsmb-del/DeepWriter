@@ -13,6 +13,7 @@ import { streamChat } from './deepseek'
 import { deliverManuscript } from './manuscriptDelivery'
 import { manuscriptDraftInfo, saveManuscriptDraft } from './manuscriptDraftExport'
 import { readManuscriptReader } from './manuscriptReader'
+import { goalCandidateTurns } from './jobs/goalAnswer'
 import { getRunWorkPlan } from './workPlan'
 import { WORK_PLAN_TOOL } from '../shared/workPlan'
 import { queueWorkSteering, workSteeringView } from './workSteering'
@@ -27,6 +28,7 @@ import { createSessionStore } from './sessionStore'
 import { sessionEditHistory } from './sessionEditHistory'
 import { sessionFileEvidence } from './fileEvidenceView'
 import { undoFileEdit } from './editUndo'
+import { getRunGoal } from './goalMode'
 import { createPermissionManager, defaultAskUser } from './permissions'
 import { createPermissionRequestController } from './permissionRequests'
 import { loadMemory } from './memory'
@@ -2374,8 +2376,9 @@ registerIpc('runs:get', { schema: schemas.runsGetSchema }, async (_e, input) => 
   if (!repository) return null
   const r = repository.getRun(input.runId)
   if (!r) return null
-  return { runId: r.run_id, sessionId: r.session_id, status: r.status, phase: r.phase, errorCode: r.error_code, errorMessage: r.error_message, startedAt: r.started_at, updatedAt: r.updated_at, config: JSON.parse(r.config_json || '{}'), manuscriptDraft: manuscriptDraftInfo(repository, r.run_id), workPlan: getRunWorkPlan(repository, r.run_id), turns: repository.getRunTurnPreviews(r.run_id) }
+  return { runId: r.run_id, sessionId: r.session_id, status: r.status, phase: r.phase, errorCode: r.error_code, errorMessage: r.error_message, startedAt: r.started_at, updatedAt: r.updated_at, config: JSON.parse(r.config_json || '{}'), goal: getRunGoal(repository, r.run_id), manuscriptDraft: manuscriptDraftInfo(repository, r.run_id), workPlan: getRunWorkPlan(repository, r.run_id), turns: repository.getRunTurnPreviews(r.run_id) }
 })
+registerIpc('runs:getGoal', { schema: schemas.runsGetSchema.strict() }, async (_e, input) => repository ? getRunGoal(repository, input.runId) : null)
 registerIpc('runs:getWorkPlan', { schema: schemas.runsGetSchema }, async (_e, input) => repository ? getRunWorkPlan(repository, input.runId) : null)
 const steeringPublicError = (error: unknown): IpcError | undefined => error instanceof Error && error.message.startsWith('steering_') ? new IpcError('steering_refused', error.message) : undefined
 registerIpc('runs:steer', { schema: schemas.workSteeringSchema, publicError: steeringPublicError }, async (_event, input) => {
@@ -2715,6 +2718,10 @@ registerIpc('runs:resume', { schema: schemas.runsResumeSchema }, async (_e, inpu
     }
   }
   let cfg = JSON.parse(run.config_json || '{}') as Record<string, unknown>
+  const autonomousGoal = cfg.goalMode === 'autonomous' && cfg.runMode === 'agent' && cfg.longMode !== true && cfg.planMode !== true
+  if (input.reauthorizeGoal && !autonomousGoal) return { ok: false, reason: 'not_autonomous_goal', message: '只有原自主任务可以重新授权；请新建任务选择运行方式' }
+  if (autonomousGoal && !input.reauthorizeGoal) return { ok: false, reason: 'goal_authorization_required', message: '自主任务恢复需要重新授权，请选择“恢复并授权”' }
+  if (autonomousGoal && !['waiting_user', 'recoverable', 'recovery_required'].includes(run.status)) return { ok: false, reason: 'goal_not_recoverable', message: '任务当前不可恢复；不会更换运行中的授权' }
   // A complete-looking scene whose structured semantics are ambiguous is a
   // user decision boundary, not an ordinary recoverable interruption.  Keep
   // the durable pause across restart and do not let the generic resume path
@@ -2767,6 +2774,13 @@ registerIpc('runs:resume', { schema: schemas.runsResumeSchema }, async (_e, inpu
   // R4.1 WINDOW-ROUTE-01：恢复由 event.sender 显式领养（不绑定窗口 id，窗口销毁即解除）
   const resumer = BrowserWindow.fromWebContents(_e.sender)
   if (resumer) kernelWins.set(input.runId, resumer)
+  if (autonomousGoal) {
+    if (!resumer || typeof cfg.permissionWorkspaceRoot !== 'string') return { ok: false, reason: 'goal_project_required', message: '自主任务需要原已选项目目录；请停止后重新选择项目并新建任务' }
+    const pm = ensurePermissionManager()
+    if (!pm) throw new IpcError('permission_unavailable', '任务授权服务不可用')
+    pm.revokeAutonomousTaskGrant(input.runId)
+    await pm.issueAutonomousTaskGrant({ webContentsId: _e.sender.id, sessionId: run.session_id, runId: input.runId, workspaceRoot: cfg.permissionWorkspaceRoot })
+  }
   // R4.2 A4（S-03）：recovery_required 只领养展示，不自动 step——没有显式决策不得继续
   if (run.status === 'recovery_required') {
     await runKernel.restore(input.runId)
@@ -2973,6 +2987,7 @@ function ensureDesktopExtensions(): DesktopExtensionService {
       return result.canceled ? null : result.filePaths[0] ?? null
     },
     authorizeStart: async ({ id, packageHash, runId, roots, signal }) => {
+      if (configForRun(runId).goalMode === 'autonomous') return false
       const owner = kernelWins.get(runId)
       if (signal.aborted || !owner || owner.isDestroyed()) return false
       const result = await dialog.showMessageBox(owner, {
@@ -3370,6 +3385,7 @@ function initRunKernel(): void {
             pagedFileReads: cfg.pagedFileReads === true,
             workDir: typeof cfg.workDir === 'string' ? cfg.workDir : s.workDir,
             docDir: typeof cfg.docDir === 'string' ? cfg.docDir : s.docDir,
+            goalMode: cfg.goalMode === 'autonomous' ? 'autonomous' as const : cfg.goalMode === 'guided' ? 'guided' as const : undefined,
             permissionMode: cfg.permissionMode === 'auto' ? 'auto' as const : 'safe' as const,
             permissionWorkspaceRoot: typeof cfg.permissionWorkspaceRoot === 'string' ? cfg.permissionWorkspaceRoot : undefined,
             sessionId: typeof cfg.sessionId === 'string' ? cfg.sessionId : 'kernel',
@@ -3469,6 +3485,11 @@ function initRunKernel(): void {
       return { ok: true, checkpointId: `ck-${runId.slice(0, 8)}` }
     },
     onEvent: (runId, ev) => {
+      if (ev.type === 'goal_updated' || ev.type === 'terminal') {
+        for (const window of BrowserWindow.getAllWindows()) {
+          if (!window.isDestroyed()) window.webContents.send('runs:goalUpdated', { runId })
+        }
+      }
       // Tool events follow the durable upsert. Notify once per committed plan
       // or terminal boundary; subscribers fetch only the validated checklist.
       if (ev.type === 'terminal' || ev.type === 'tool' && ev.toolCall.name === WORK_PLAN_TOOL && ev.toolCall.status === 'completed') {
@@ -3632,7 +3653,13 @@ function initRunKernel(): void {
       if (isTerminal && terminalSessionId) {
         const proj = projectTerminalAssistant(
           {
-            getTurnsByRun: (r) => repo.getTurnsByRun(r),
+            getTurnsByRun: (r) => {
+              if (!cfg.goalMode) return repo.getTurnsByRun(r)
+              const goal = getRunGoal(repo, r)
+              if (goal?.status === 'completed' && repo.getRun(r)?.status === 'completed') return goalCandidateTurns(repo.getTurnsByRun(r), goal.candidateTurnId)
+              const blocked = goal?.blockedOn
+              return blocked ? [{ role: 'assistant', content: [blocked.reason, blocked.nextAction].filter(Boolean).join('\n') }] : []
+            },
             getSessionMessages: (s) => repo.getSessionMessages(s),
             appendSessionMessage: (m) => repo.appendSessionMessage(m as Parameters<typeof repo.appendSessionMessage>[0]),
             touchSession: (s) => repo.touchSession(s),
@@ -3683,6 +3710,7 @@ function initRunKernel(): void {
       }
     },
     onRunUpdate: (run) => {
+      if (run.status === 'waiting_user' || run.status === 'recovery_required') permissionManager?.revokeAutonomousTaskGrant(run.runId)
       // 终态清理必须等 terminal 事件完成投影与投递后执行，见 onEvent。
       // A semantic-review packet is written before the run enters its durable
       // waiting_user boundary.  Project it from the repository-backed packet;
@@ -4253,9 +4281,24 @@ registerIpc('chat:start', { schema: schemas.chatStartSchema, publicError: public
   let config: Record<string, unknown> | null = null
   let settingsMetadata: Awaited<ReturnType<typeof loadSettingsMetadata>> | null = null
   let costChallenge: DesktopCostChallenge | null = null
+  const acceptedEngine = runKernel
   const orchestration = createChatOrchestration({
     repository,
-    runKernel,
+    runKernel: {
+      ...acceptedEngine,
+      start: async input => {
+        const result = await acceptedEngine.start(input)
+        // Only the committed new-start path may issue consent. An idempotent
+        // replay or restored config must never renew a project grant.
+        if (result.ok && input.newlyAccepted && input.config.goalMode === 'autonomous') {
+          if (win.isDestroyed() || e.sender.isDestroyed()) throw new IpcError('no_window', '任务窗口已关闭，未授权执行')
+          const pm = ensurePermissionManager()
+          if (!pm || typeof input.config.permissionWorkspaceRoot !== 'string') throw new IpcError('goal_project_required', '自主任务需要已选择的项目目录')
+          await pm.issueAutonomousTaskGrant({ webContentsId: e.sender.id, sessionId: input.sessionId, runId: input.runId, workspaceRoot: input.config.permissionWorkspaceRoot })
+        }
+        return result
+      }
+    },
     startedChats,
     loadSettings: async () => {
       settingsMetadata = await loadSettingsMetadata()
@@ -4303,6 +4346,8 @@ registerIpc('chat:start', { schema: schemas.chatStartSchema, publicError: public
         }, executableProfileStages(config))
         config.providerProfileSnapshots = frozenProfiles
       }
+      const goalProfile = frozenProfiles?.draft ?? frozenProfiles?.default
+      if (p.goalMode && goalProfile?.supportsTools === false) throw new IpcError('goal_tools_required', '目标模式需要支持工具调用的模型，请先切换模型')
       freezeRunWebAccess(config, settings.webAccessEnabled !== false)
       if (!contextV2Service) throw new IpcError('context_unavailable', '上下文服务尚未就绪')
       await ensureDesktopExtensions().freezeForNewRun(config)
@@ -4365,6 +4410,7 @@ registerIpc('chat:start', { schema: schemas.chatStartSchema, publicError: public
           ...(typeof scope?.branchId === 'string' ? { branchId: scope.branchId } : {}), now: Date.now()
         })
       }
+      if (config.goalMode === 'autonomous' && typeof config.permissionWorkspaceRoot !== 'string') throw new IpcError('goal_project_required', '自主任务需要已选择的项目目录，请先选择工作目录')
       return config as Record<string, unknown>
     }
   })
@@ -4416,6 +4462,7 @@ registerIpc('chat:start', { schema: schemas.chatStartSchema, publicError: public
     surfaceFloatingRunOnStart()
     return { runId: result.runId, acceptedAt: result.acceptedAt, status: result.status, idempotent: result.idempotent }
   } catch (err) {
+    permissionManager?.revokeAutonomousTaskGrant(acceptedPayload.id)
     if (acceptedRunId) {
       const message = err instanceof Error ? err.message : String(err)
       // The DB run was already accepted (and may already be stepping).  Do
@@ -4443,6 +4490,7 @@ registerIpc('chat:start', { schema: schemas.chatStartSchema, publicError: public
   }
 })
 registerIpcOn('chat:stop', { schema: schemas.chatStopSchema }, (_e, input) => {
+  permissionManager?.revokeAutonomousTaskGrant(input.id)
   // Save the durable long-form checkpoint first; cancellation must never
   // discard a partial/candidate manuscript or imply a story commit.
   void stopLongformWorkflowForRun(input.id, 'user_stop').then(() => {
@@ -4573,6 +4621,7 @@ registerIpc('activity:pause', { schema: schemas.activityRunIdSchema }, async (_e
   if (!row || !['queued', 'running', 'recoverable', 'cancelling', 'cancel_requested'].includes(row.status)) return { ok: false, error: 'run_not_found' }
   try {
     await runKernel?.pause(input.runId)
+    permissionManager?.revokeAutonomousTaskGrant(input.runId)
     await stopLongformWorkflowForRun(input.runId, 'activity_pause')
     return { ok: true }
   } catch (error) {
@@ -4582,6 +4631,7 @@ registerIpc('activity:pause', { schema: schemas.activityRunIdSchema }, async (_e
 registerIpc('activity:resume', { schema: schemas.activityRunIdSchema }, async (_e, input) => {
   const row = repository?.getRun(input.runId)
   if (!row || row.status !== 'waiting_user') return { ok: false, error: 'run_not_paused' }
+  if (JSON.parse(row.config_json || '{}').goalMode === 'autonomous') return { ok: false, error: 'goal_authorization_required' }
   if (row.error_code === 'narrative_state_pending_review') return { ok: false, error: 'narrative_review_required' }
   try {
     await resumeLongformWorkflowForRun(input.runId, 'activity_resume')

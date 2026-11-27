@@ -7,6 +7,7 @@ import type { BillingMetric, ProviderAttemptRecord, RunBillingView } from '../..
 import type { ManuscriptDraftInfo } from '../../../../shared/manuscriptDraft'
 import ActivityTimeline from '../activity/ActivityTimeline'
 import WorkPlanProgress from '../activity/WorkPlanProgress'
+import GoalProgress from '../activity/GoalProgress'
 import ToolOutputView from './ToolOutputView'
 import Icon from '../Icon'
 import { useDialogFocus } from '../../hooks/useDialogFocus'
@@ -536,6 +537,7 @@ function CompletionProgressView({ runId }: { runId: string }): React.ReactNode {
   const closeRunInspector = useStore((st) => st.closeRunInspector)
   const showToast = useStore((st) => st.showToast)
   const currentBudget = Number((recoverable?.config?.completionContract as { tokenBudget?: unknown } | undefined)?.tokenBudget ?? 0)
+  if (recoverable?.config.goalMode) return null
   if (!cp || cp.subtype === 'contract_created') {
     if (!recoverable?.errorCode?.startsWith('completion_')) return null
     const budgetBlocked = recoverable.errorCode === 'completion_budget_exhausted'
@@ -640,7 +642,7 @@ function ProviderCallLimitRecovery({ runId }: { runId: string }): React.ReactNod
   const resumeRun = useStore((state) => state.resumeRun)
   const showToast = useStore((state) => state.showToast)
   const [submitting, setSubmitting] = useState(false)
-  if (recoverable?.errorCode !== 'run_provider_call_cap') return null
+  if (recoverable?.config.goalMode || recoverable?.errorCode !== 'run_provider_call_cap') return null
   return <section className="ri-section" data-testid="provider-call-limit-recovery">
     <h4>调用次数已用尽</h4>
     <p>已用次数保留，费用和 token 预算不变。</p>
@@ -691,6 +693,7 @@ function RunBody({ run }: { run: RunViewState }): React.ReactNode {
       <TerminalSummary run={run} />
       <StatsRow run={run} stats={stats} />
       <WorkflowOverview run={run} />
+      <GoalProgress key={run.runId} runId={run.runId} detail />
       <WorkPlanProgress runId={run.runId} detail />
       <ConstraintProgress run={run} />
       <StoryEpochRecovery runId={run.runId} />
@@ -768,7 +771,7 @@ function RunInspectorInner(): React.ReactNode {
         </div>
         {tab === 'manuscript' ? manuscript.view ? <ManuscriptReader key={runId} index={manuscript.view} onReturn={returnToWriting} /> : <div className="dw-manuscript-empty" role="status">{manuscript.loading ? '正在读取目录…' : manuscript.error ?? '这个任务还没有长文稿件。'}</div> : tab === 'billing'
           ? <BillingPanel key={runId} runId={runId} />
-          : <><ManuscriptDraftControl runId={runId} /><ProviderCallLimitRecovery runId={runId} />{run ? <RunBody run={run} /> : <div className="run-inspector-body"><WorkPlanProgress runId={runId} detail /><div className="run-inspector-empty">未找到该任务的活动记录。</div></div>}</>}
+          : <><ManuscriptDraftControl runId={runId} /><ProviderCallLimitRecovery runId={runId} />{run ? <RunBody run={run} /> : <div className="run-inspector-body"><GoalProgress key={runId} runId={runId} detail /><WorkPlanProgress runId={runId} detail /><div className="run-inspector-empty">未找到该任务的活动记录。</div></div>}</>}
         {confirmDelete ? <ConfirmDialog
           title="删除这个工作流？"
           description="流程、账单与运行证据将从本机删除；当前故事线修订默认保留。若本轮内容有误，可选择同时撤回故事修订。"

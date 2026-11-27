@@ -6,6 +6,9 @@ import path from 'node:path'
 import { execFileSync } from 'node:child_process'
 import { createPermissionManager, type PermissionIdentity } from '../src/main/permissions'
 import { createPermissionRequestController } from '../src/main/permissionRequests'
+import { buildExecutionSnapshot } from '../src/main/executionSnapshot'
+import { chatStartSchema, runsResumeSchema } from '../src/shared/ipcSchemas'
+import { executeTool } from '../src/main/tools'
 import { agentTools, setPermissionManager } from '../src/main/agentTools'
 import { createCheckpointStore, setCheckpointStore } from '../src/main/checkpoint'
 
@@ -213,4 +216,210 @@ test('Windows 短路径 deny 与真实文件身份一致，不转成人工允许
   await pm.updateSettings({ mode: 'safe', rules: [{ id: 'short-allow', type: 'path', pattern: short, action: 'allow', persistent: true }] })
   assert.equal((await pm.decide('path', file, { ...owner, permissionMode: 'safe' })).ruleId, undefined)
   assert.equal(asks, 2, 'physical alias matching must not expand a remembered allow rule')
+})
+
+
+test('自主任务授权只适用于明确项目和运行身份，不写入全局模式或规则', async () => {
+  let asks = 0
+  const pm = createPermissionManager(path.join(root, 'goal-scope'), async () => { asks++; return { action: 'allow', remember: true } }, 'safe')
+  const autonomous: PermissionIdentity = { ...owner, goalMode: 'autonomous', commandCwd: workspace, permissionMode: 'safe' }
+  const target = path.join(workspace, 'program.ts')
+  assert.equal((await pm.decide('path', target, autonomous)).action, 'deny', 'frozen goalMode alone is not a grant')
+  await pm.issueAutonomousTaskGrant({ webContentsId: 1, sessionId: 'session-a', runId: 'run-a', workspaceRoot: workspace })
+  for (const operation of ['read', 'create', 'edit', 'overwrite'] as const) assert.equal((await pm.decide('path', target, { ...autonomous, operation })).action, 'allow')
+  assert.equal((await pm.decide('command', 'echo project-command', autonomous)).action, 'allow')
+  for (const patch of [{ webContentsId: 2 }, { sessionId: 'session-b' }, { runId: 'run-b' }, { workspaceRoot: root }, { workspaceRoot: undefined }]) {
+    assert.equal((await pm.decide('path', target, { ...autonomous, ...patch })).action, 'deny', JSON.stringify(patch))
+  }
+  assert.equal(asks, 0)
+  assert.deepEqual(pm.getSettings(), { mode: 'safe', rules: [] })
+  assert.deepEqual(pm.listLeases(), [], 'not an off/full lease')
+  await assert.rejects(fs.stat(path.join(root, 'goal-scope', 'permissions.json')), { code: 'ENOENT' })
+  pm.revokeAutonomousTaskGrant('run-a')
+  assert.equal((await pm.decide('path', target, autonomous)).action, 'deny')
+  const restarted = createPermissionManager(path.join(root, 'goal-scope'), async () => { throw new Error('must not ask') })
+  assert.equal((await restarted.decide('path', target, autonomous)).action, 'deny', 'a new manager/resume never reconstructs grants')
+})
+
+test('自主模式项目外、敏感、deny、ask和非法命令立即拒绝，不被允许规则或全开覆盖', async () => {
+  let asks = 0
+  const pm = createPermissionManager(path.join(root, 'goal-deny'), async () => { asks++; throw new Error('autonomous must never ask') })
+  const autonomous: PermissionIdentity = { ...owner, goalMode: 'autonomous', commandCwd: workspace }
+  await pm.issueAutonomousTaskGrant({ webContentsId: 1, sessionId: 'session-a', runId: 'run-a', workspaceRoot: workspace })
+  pm.issueLease({ webContentsId: 1, sessionId: 'session-a', runId: 'run-a', scopes: 'full', ttlMs: 60_000 })
+  await pm.updateSettings({ mode: 'auto', rules: [
+    { id: 'broad-allow', type: 'path', pattern: root, action: 'allow', persistent: true },
+    { id: 'deny-private', type: 'path', pattern: path.join(workspace, 'private'), action: 'deny', persistent: true },
+    { id: 'deny-command', type: 'command', pattern: 'echo forbidden', action: 'deny', literal: true, persistent: true },
+    { id: 'ask-command', type: 'command', pattern: 'echo ask', action: 'ask', literal: true, persistent: true }
+  ] })
+  for (const target of [path.join(root, 'outside.md'), path.join(workspace, 'private', 'file.md'), path.join(workspace, '.env'), path.join(workspace, 'credentials.txt')]) {
+    assert.equal((await pm.decide('path', target, autonomous)).action, 'deny', target)
+  }
+  for (const command of ['echo forbidden', 'echo ask', 'echo first && echo second', 'echo bad\nline']) assert.equal((await pm.decide('command', command, autonomous)).action, 'deny', command)
+  assert.equal((await pm.decide('command', 'echo safe', { ...autonomous, commandCwd: root })).action, 'deny')
+  assert.equal((await pm.decide('command', 'echo safe', { ...autonomous, commandCwd: undefined })).action, 'deny')
+  const aborted = new AbortController(); aborted.abort()
+  assert.equal((await pm.decide('path', path.join(workspace, 'report.md'), { ...autonomous, signal: aborted.signal })).action, 'deny')
+  assert.equal(asks, 0)
+  await assert.rejects(pm.issueAutonomousTaskGrant({ webContentsId: 1, sessionId: 'session-a', runId: 'disk', workspaceRoot: path.parse(workspace).root }), /整个磁盘/)
+})
+
+test('自主真实工具可写程序、覆盖并保留快照、运行命令，撤销后无写入或交互', async () => {
+  let asks = 0
+  const pm = createPermissionManager(path.join(root, 'goal-live'), async () => { asks++; throw new Error('must not ask') }, 'safe')
+  setPermissionManager(pm)
+  setCheckpointStore(createCheckpointStore(path.join(root, 'goal-live-checkpoints')))
+  const env = { workDir: workspace, docDir: root, webContentsId: 3, sessionId: 'goal-live', runId: 'goal-live', goalMode: 'autonomous' as const, permissionMode: 'safe' as const, permissionWorkspaceRoot: workspace }
+  await pm.issueAutonomousTaskGrant({ webContentsId: 3, sessionId: env.sessionId, runId: env.runId, workspaceRoot: workspace })
+  const write = agentTools.find(tool => tool.name === 'write_file')!, command = agentTools.find(tool => tool.name === 'run_command')!
+  const file = path.join(workspace, 'goal-live.ts')
+  assert.equal((await write.execute({ path: file, content: 'first' }, root, env)).ok, true)
+  const overwritten = await write.execute({ path: file, content: 'second' }, root, env)
+  assert.equal(overwritten.ok, true); assert.ok(overwritten.backupId)
+  assert.equal((await command.execute({ command: 'echo project-fixture' }, root, env)).ok, true)
+  assert.equal((await command.execute({ command: 'where node' }, root, env)).ok, false, 'disabled system commands stay disabled')
+  const outside = path.join(root, 'goal-outside.ts')
+  assert.equal((await write.execute({ path: outside, content: 'outside' }, root, env)).ok, false)
+  await assert.rejects(fs.stat(outside), { code: 'ENOENT' })
+  pm.revokeLeasesByRunId(env.runId)
+  assert.equal((await write.execute({ path: file, content: 'revoked' }, root, env)).ok, false)
+  assert.equal((await command.execute({ command: 'echo revoked' }, root, env)).ok, false)
+  assert.equal(await fs.readFile(file, 'utf8'), 'second')
+  setPermissionManager(null)
+  assert.equal((await write.execute({ path: file, content: 'missing manager' }, root, env)).ok, false)
+  assert.equal((await command.execute({ command: 'echo missing-manager' }, root, env)).ok, false)
+  assert.equal(asks, 0)
+})
+
+test('撤销窗口、会话和pending签发均使自主任务失效；普通和引导仍逐项确认', async () => {
+  let asks = 0
+  const pm = createPermissionManager(path.join(root, 'goal-revocation'), async () => { asks++; return { action: 'deny', remember: false } }, 'safe')
+  const autonomous: PermissionIdentity = { ...owner, goalMode: 'autonomous', commandCwd: workspace, permissionMode: 'safe' }
+  const issue = () => pm.issueAutonomousTaskGrant({ webContentsId: 1, sessionId: 'session-a', runId: 'run-a', workspaceRoot: workspace })
+  for (const revoke of [() => pm.revokeLeasesByWebContentsId(1), () => pm.revokeLeasesBySessionId('session-a')]) {
+    await issue(); revoke()
+    assert.equal((await pm.decide('path', path.join(workspace, 'file.md'), autonomous)).action, 'deny')
+  }
+  const pending = issue(); pm.revokeLeasesByRunId('run-a')
+  await assert.rejects(pending, /已撤销/)
+  await issue()
+  for (const goalMode of [undefined, 'guided'] as const) assert.equal((await pm.decide('command', 'echo still-needs-consent', { ...owner, permissionMode: 'safe', goalMode })).action, 'deny')
+  assert.equal(asks, 2)
+})
+
+
+test('自主文档导出未填路径使用项目目录，不等待保存对话框；junction不能逃出项目', async () => {
+  let asks = 0
+  const pm = createPermissionManager(path.join(root, 'goal-export'), async () => { asks++; throw new Error('must not ask') })
+  setPermissionManager(pm)
+  const env = { workDir: workspace, docDir: root, webContentsId: 4, sessionId: 'goal-export', runId: 'goal-export', goalMode: 'autonomous' as const, permissionWorkspaceRoot: workspace }
+  await pm.issueAutonomousTaskGrant({ webContentsId: 4, sessionId: env.sessionId, runId: env.runId, workspaceRoot: workspace })
+  const result = await executeTool('generate_markdown_doc', { title: '目标导出', filename: 'goal-export.md', content: '真实项目导出内容' }, root, env)
+  assert.equal(result.ok, true, result.message)
+  assert.equal(result.path, path.join(workspace, 'goal-export.md'))
+  const outsideDir = path.join(root, 'outside-goal-project'); await fs.mkdir(outsideDir)
+  const junction = path.join(workspace, 'goal-escape')
+  await fs.symlink(outsideDir, junction, process.platform === 'win32' ? 'junction' : 'dir')
+  const denied = await agentTools.find(tool => tool.name === 'write_file')!.execute({ path: path.join(junction, 'must-not-write.md'), content: 'escaped' }, root, env)
+  assert.equal(denied.ok, false, denied.message)
+  await assert.rejects(fs.stat(path.join(outsideDir, 'must-not-write.md')), { code: 'ENOENT' })
+  assert.equal(asks, 0)
+})
+
+test('chat:start目标模式必须显式提交、冻结且仅普通执行；恢复重授只有true可用', () => {
+  const settings = { model: 'test-model', baseUrl: 'https://api.deepseek.com', maxTokens: 4096, temperature: .7, topP: 1, thinkingEnabled: false, reasoningEffort: 'default' as const, workDir: workspace, docDir: root, permissionMode: 'safe' as const, permissionWorkspaceRoot: workspace, novelMode: false, galgame: { enabled: false, projectDir: '', sdkPath: '' }, historyBudgetTokens: 8000 }
+  const snapshot = (goalMode?: 'guided' | 'autonomous') => buildExecutionSnapshot({ payload: { id: 'goal-contract', mode: 'agent', phase: 'execute', text: '构建项目', ...(goalMode ? { goalMode } : {}) }, settings, sessionId: 'contract', memory: { projectPath: '', projectContent: '', userContent: '' }, now: 1 })
+  assert.equal(snapshot().goalMode, undefined)
+  for (const goalMode of ['guided', 'autonomous'] as const) {
+    assert.equal(chatStartSchema.parse({ id: 'r', mode: 'agent', goalMode }).goalMode, goalMode)
+    const frozen = snapshot(goalMode)
+    assert.equal(frozen.goalMode, goalMode); assert.equal(frozen.permissionMode, 'safe'); assert.equal(frozen.permissionWorkspaceRoot, workspace)
+  }
+  for (const payload of [
+    { id: 'r', mode: 'style', goalMode: 'autonomous' },
+    { id: 'r', mode: 'longwrite', goalMode: 'autonomous' },
+    { id: 'r', mode: 'galgame', goalMode: 'autonomous' },
+    { id: 'r', mode: 'agent', longMode: true, goalMode: 'autonomous' },
+    { id: 'r', mode: 'agent', phase: 'plan', goalMode: 'autonomous' },
+    { id: 'r', goalMode: 'off' }
+  ]) assert.equal(chatStartSchema.safeParse(payload).success, false, JSON.stringify(payload))
+  assert.equal(runsResumeSchema.safeParse({ runId: 'r', reauthorizeGoal: true }).success, true)
+  assert.equal(runsResumeSchema.safeParse({ runId: 'r', reauthorizeGoal: false }).success, false)
+  assert.equal(runsResumeSchema.safeParse({ runId: 'r', reauthorizeGoal: 'true' }).success, false)
+  assert.throws(() => buildExecutionSnapshot({ payload: { id: 'plan', mode: 'agent', phase: 'plan', goalMode: 'autonomous' }, settings, sessionId: 'contract', memory: { projectPath: '', projectContent: '', userContent: '' } }), /普通 Agent 执行/)
+})
+
+
+test('自主命令不是cwd沙箱：解释器、网络和git默认拒绝，项目读取逐项保留路径与敏感限制', async () => {
+  let asks = 0
+  const pm = createPermissionManager(path.join(root, 'goal-command-boundary'), async () => { asks++; throw new Error('must not ask') })
+  setPermissionManager(pm)
+  const env = { workDir: workspace, docDir: root, webContentsId: 5, sessionId: 'goal-command', runId: 'goal-command', goalMode: 'autonomous' as const, permissionWorkspaceRoot: workspace }
+  await pm.issueAutonomousTaskGrant({ webContentsId: 5, sessionId: env.sessionId, runId: env.runId, workspaceRoot: workspace })
+  const command = agentTools.find(tool => tool.name === 'run_command')!
+  const file = path.join(workspace, 'goal-command-readable.txt'); await fs.writeFile(file, 'ordinary-project-needle')
+  const outside = path.join(root, 'goal-command-outside.txt'); await fs.writeFile(outside, 'outside-private-needle')
+  const sensitive = path.join(workspace, '.env'); await fs.writeFile(sensitive, 'sensitive-project-needle')
+  const marker = path.join(root, 'must-not-run-interpreter.txt')
+  const script = path.join(workspace, 'goal-command-interpreter.cjs')
+  await fs.writeFile(script, `require('node:fs').writeFileSync(${JSON.stringify(marker)}, 'UNSAFE')`)
+  for (const cmd of [
+    `node "${script}"`, `"${process.execPath}" "${script}"`,
+    'python -c "print(123)"', 'powershell -Command "Write-Output 123"',
+    'cmd /c echo harmless', 'curl https://example.invalid', 'git status',
+    'git diff --ext-diff', `type "${outside}"`, 'type .env',
+    `findstr needle "${outside}"`, 'findstr /s needle .', 'findstr needle .',
+    'dir /s', 'ls --recursive', 'pwd ignored-argument'
+  ]) {
+    const result = await command.execute({ command: cmd }, root, env)
+    assert.equal(result.ok, false, cmd)
+    assert.match(result.message, /未执行|拒绝|只接受/)
+    assert.doesNotMatch(result.message, /outside-private-needle|sensitive-project-needle/)
+  }
+  await assert.rejects(fs.stat(marker), { code: 'ENOENT' })
+  assert.match((await command.execute({ command: `type "${file}"` }, root, env)).message, /ordinary-project-needle/)
+  const searched = await command.execute({ command: `findstr /i needle "${file}"` }, root, env)
+  assert.equal(searched.ok, true); assert.match(searched.message, /ordinary-project-needle/)
+  const listed = await command.execute({ command: 'dir /b' }, root, env)
+  assert.equal(listed.ok, true); assert.match(listed.message, /goal-command-readable.txt/)
+  assert.equal((await command.execute({ command: 'echo "literal && not-a-shell"' }, root, env)).ok, true)
+  const blockedDirectory = path.join(workspace, '.goal-private'); await fs.mkdir(blockedDirectory)
+  await fs.writeFile(path.join(blockedDirectory, 'secret.txt'), 'secret-through-alias')
+  const alias = path.join(workspace, 'goal-command-alias')
+  await fs.symlink(blockedDirectory, alias, process.platform === 'win32' ? 'junction' : 'dir')
+  const aliasRead = await command.execute({ command: `type "${path.join(alias, 'secret.txt')}"` }, root, env)
+  assert.equal(aliasRead.ok, false); assert.doesNotMatch(aliasRead.message, /secret-through-alias/)
+  await pm.updateSettings({ mode: 'auto', rules: [{ id: 'command-file-denied', type: 'path', pattern: file, action: 'deny', persistent: true }] })
+  assert.equal((await command.execute({ command: `type "${file}"` }, root, env)).ok, false)
+  assert.equal((await command.execute({ command: `findstr needle "${file}"` }, root, env)).ok, false)
+  assert.equal(asks, 0)
+})
+
+test('复杂自主命令仅消费准确argv允许规则，追加参数、前缀、拒绝和一次授权耗尽均不能继承', async () => {
+  let asks = 0
+  const pm = createPermissionManager(path.join(root, 'goal-command-exact'), async () => { asks++; throw new Error('must not ask') })
+  setPermissionManager(pm)
+  const env = { workDir: workspace, docDir: workspace, webContentsId: 6, sessionId: 'goal-exact', runId: 'goal-exact', goalMode: 'autonomous' as const, permissionWorkspaceRoot: workspace }
+  await pm.issueAutonomousTaskGrant({ webContentsId: 6, sessionId: env.sessionId, runId: env.runId, workspaceRoot: workspace })
+  const script = path.join(workspace, 'goal-exact-script.cjs')
+  const marker = path.join(workspace, 'goal-exact-authorized.txt')
+  await fs.writeFile(script, `require('node:fs').writeFileSync(${JSON.stringify(marker)}, 'explicit-command-allow')`)
+  const exact = `node "${script}"`
+  const allow = { id: 'explicit-exact-command', type: 'command' as const, pattern: exact, action: 'allow' as const, literal: true, persistent: false }
+  await pm.updateSettings({ mode: 'auto', rules: [allow] })
+  const command = agentTools.find(tool => tool.name === 'run_command')!
+  for (const cmd of [`${exact} extra`, `${exact} --eval harmless`, `node "${script}.other"`]) assert.equal((await command.execute({ command: cmd }, workspace, env)).ok, false, cmd)
+  await assert.rejects(fs.stat(marker), { code: 'ENOENT' })
+  const permitted = await command.execute({ command: exact }, workspace, env)
+  assert.equal(permitted.ok, true, permitted.message)
+  assert.equal(await fs.readFile(marker, 'utf8'), 'explicit-command-allow')
+  assert.equal(pm.getSettings().rules.length, 0, 'one-use command approval is consumed')
+  assert.equal((await command.execute({ command: exact }, workspace, env)).ok, false)
+  await pm.updateSettings({ mode: 'auto', rules: [
+    { ...allow, persistent: true },
+    { id: 'explicit-deny-wins', type: 'command', pattern: exact, action: 'deny', literal: true, persistent: true }
+  ] })
+  assert.equal((await command.execute({ command: exact }, workspace, env)).ok, false, 'deny wins even when an exact allow precedes it')
+  assert.equal(asks, 0)
 })

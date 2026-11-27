@@ -9,7 +9,7 @@ const { DatabaseSync } = require('node:sqlite')
 const { before, after, test } = require('node:test')
 const root = path.resolve(__dirname, '..')
 let suiteDir, bundle, server, baseUrl
-let mode = 'normal'; let requests = []; let requestHeaders = []; let requestPaths = []; let scaleChunk = 0; let toolPath
+let goalTurn = 0; let goalPaths; let goalSchemaErrors; let mode = 'normal'; let requests = []; let requestHeaders = []; let requestPaths = []; let scaleChunk = 0; let toolPath
 const textHash = (text) => createHash('sha256').update(text).digest('hex')
 const unique = (n, offset = 0) => Array.from({ length: n }, (_, index) => String.fromCodePoint(0x4e00 + offset + index)).join('')
 const events = (stdout) => stdout.split(/\r?\n/).filter((line) => line.startsWith('{')).map((line) => JSON.parse(line))
@@ -60,6 +60,33 @@ before(async () => {
                   actuality: 'asserted_actual', assertion: 'asserted', negation: false }] } : {})
               })) }
           } : {}) })
+        }
+        else if (mode === 'goal-notice') {
+          const writeText = '渡口更正：末班船在22:03离岸。'
+          const sourceText = '值班记录：22:03，末班船离岸。'
+          const evidence = (reference, quote, reason) => ({ kind: 'tool', reference, quote, reason })
+          const check = (satisfied, ev) => ({ action: 'review', progress: satisfied ? '核对交付' : '继续补齐通知', originalObjectiveReview: '原要求有实物通知，且值班簿不得被改写。', originalSatisfied: satisfied, checks: [{ id: 'notice', satisfied, reason: '逐份对照交付和原件', evidence: ev }] })
+          const script = [
+            ['update_goal', { action: 'define', progress: '先明确文件交付', outcomes: [{ id:'notice', description:'生成通知.md，原值班记录不改', check:'读回通知.md和原值班簿，检查离岸时间', verification:'tool' }] }],
+            '通知已经写好了。', // Intentionally false. No file and no tool evidence.
+            ['update_goal', check(true, [evidence('invented-receipt', writeText, '声称已核对')])],
+            ['update_goal', check(false, [])],
+            ['read_file', { path: goalPaths.source }, 'source'],
+            ['write_file', { path: goalPaths.notice, content: writeText }, 'write'],
+            ['read_file', { path: goalPaths.notice }, 'notice-read'],
+            ['read_file', { path: goalPaths.source }, 'original-read'],
+            '已保存通知.md，通知记载22:03离岸。原值班簿保留原文。',
+            ['update_goal', check(true, [evidence('notice-read', writeText, '新文件中有实际离岸时间'), evidence('original-read', sourceText, '原始值班记录不变')])]
+          ]
+          const action = script[goalTurn++]
+          if (!action) { res.end('data: [DONE]\n\n'); return }
+          if (typeof action === 'string') output = action
+          else {
+            const [name, args, id] = action
+            if (!request.tools?.some(tool => tool.function?.name === name)) goalSchemaErrors.push(name + '@' + goalTurn)
+            res.write('data: ' + JSON.stringify({ choices: [{ delta: { tool_calls: [{ index: 0, id: id || 'goal-' + goalTurn, type: 'function', function: { name, arguments: JSON.stringify(args) } }] }, finish_reason: 'tool_calls' }] }) + '\n\n')
+            res.end('data: [DONE]\n\n'); return
+          }
         }
         else if (mode === 'empty') output = ''
         else if (mode === 'slow') {
@@ -768,4 +795,41 @@ test('CLI default unlimited actual local Provider crosses sixteen; explicit sixt
     assert.equal((await run(['resume', result.runId, '--max-calls', 'unlimited', ...flags(dataDir)])).code, 1)
     assert.equal(requests.length, completeCount)
   }
+})
+
+test('Goal CLI refuses false completion, autonomously delivers the file, and does not carry consent to another task', async () => {
+  mode = 'goal-notice'; goalTurn = 0; goalSchemaErrors = []
+  const work = path.join(suiteDir, 'goal-project'), data = path.join(suiteDir, 'goal-data')
+  await fs.mkdir(work)
+  goalPaths = { source: path.join(work, '值班簿.md'), notice: path.join(work, '通知.md') }
+  const original = '值班记录：22:03，末班船离岸。'
+  await fs.writeFile(goalPaths.source, original)
+  const args = ['--work-dir', work, '--no-web', ...flags(data)]
+  const reply = await run(['agent','--goal','--no-questions','据值班簿撰写通知，存成通知.md，不改原件。','--max-calls','14',...args], {longTask:true})
+  const result = reply.events.find(x => x.type === 'result')?.data
+  assert.equal(reply.code, 0, JSON.stringify([reply.stderr, result, reply.events.slice(-8)]))
+  assert.equal(result.goal.mode, 'autonomous'); assert.equal(result.goal.status, 'completed')
+  assert.deepEqual(goalSchemaErrors, []); assert.equal(goalTurn, 10)
+  const delivered = reply.events.find(e=>e.type==='goal_answer').data.content
+  assert.ok(delivered.startsWith('已保存通知.md，通知记载22:03离岸。原值班簿保留原文。'))
+  assert.ok(delivered.includes(await fs.realpath(goalPaths.notice)), '交付附上实际文件路径：' + delivered)
+  assert.deepEqual(result.goal.outcomes[0].evidence.map(e=>e.reference), ['notice-read','original-read'])
+  const db = new DatabaseSync(path.join(data, 'deepwriter.sqlite'), { readOnly:true })
+  try {
+    const persisted = db.prepare('select content from session_messages where msg_id=?').get('m_'+result.runId+'_assistant')
+    assert.equal(persisted.content, reply.events.find(e=>e.type==='goal_answer').data.content)
+    assert.ok(!persisted.content.includes('通知已经写好了。'), '不得把验收退回的候选拼进最终会话')
+  } finally { db.close() }
+  assert.equal(await fs.readFile(goalPaths.source,'utf8'), original)
+  assert.equal(await fs.readFile(goalPaths.notice,'utf8'), '渡口更正：末班船在22:03离岸。')
+  const state = await run(['status', result.runId, '--data-dir', data, '--json'])
+  assert.equal(state.events[0].data.goal.revision, result.goal.revision)
+  mode = 'tool-deny'; toolPath = path.join(work,'下一条普通任务.md')
+  const normal = await run(['agent','在目录内新建文件', '--session',result.sessionId,...args])
+  assert.equal(normal.code,0,normal.stderr); assert.ok(!normal.events.find(x=>x.type==='result').data.goal)
+  assert.ok(!requests.at(-1).tools.some(tool=>tool.function.name==='update_goal'))
+  await assert.rejects(fs.access(toolPath), {code:'ENOENT'})
+  const before = requests.length
+  const bad = await run(['chat','--no-questions','普通对话',...args])
+  assert.notEqual(bad.code,0); assert.equal(requests.length,before)
 })

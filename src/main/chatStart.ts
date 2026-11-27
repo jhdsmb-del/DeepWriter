@@ -26,6 +26,8 @@ export interface ChatStartPayload {
   id: string
   sessionId?: string
   phase?: 'plan' | 'execute'
+  /** Explicit consent for this new ordinary Agent task only; never a saved default. */
+  goalMode?: 'guided' | 'autonomous'
   planText?: string
   planAccess?: 'read_only'
   planApproval?: AgentPlanApproval

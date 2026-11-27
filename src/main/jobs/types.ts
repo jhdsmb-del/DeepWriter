@@ -69,6 +69,7 @@ export interface ModelEvent {
 }
 
 export interface RunConfig {
+  goalMode?: import('../../shared/goalMode').GoalMode
   allowParallel?: boolean
   maxTurns?: number | null
   continueOnLength?: boolean
@@ -351,6 +352,7 @@ export type StartResult =
   | { ok: false; error: 'session_busy' | 'run_exists'; runId: string }
 
 export type RunEngineEvent =
+  | { type: 'goal_updated'; runId: string }
   | { type: 'turn'; turn: TurnRecord }
   /** 强约束撤回未通过候选后，用当前 durable assistant 投影纠正 renderer。 */
   | { type: 'content_replace'; content: string; revision: number; contentHash: string }

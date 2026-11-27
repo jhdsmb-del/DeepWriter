@@ -12,6 +12,7 @@ brief show | brief init [--input 文件]  查看或创建当前工作目录的�
 config [show|set]                    查看/保存非密钥 Provider 配置
 chat [任务或 -] [--session ID]      流式对话（默认联网）；--input 文件 或管道读取任务
 agent [任务或 -] [--work-dir 路径]   联网+本地文件/命令；终端无任务时持续交互
+agent --goal [--no-questions] 任务   按目标持续执行；--no-questions 仅授权本任务自主决策
 plan [任务或 -]                    只读查稿，保存方案；不写盘、不执行命令或扩展
 plan-info <RUN>                    查看已保存方案和批准身份
 approve <RUN> --hash HASH          明确批准保存的方案，新 Agent 按正常授权执行
@@ -23,7 +24,7 @@ assumptions <SESSION> --accept|--reject   明确处理待采用假设
 outline <SESSION>                  用配置的模型生成候选大纲，不自动确认
 confirm <SESSION> --hash HASH       确认当前大纲并执行正文
 start <SESSION>                    已确认契约的明确重试入口（新run）
-resume <RUN> [--max-calls unlimited] 恢复原配置；明确解除本任务调用次数限制
+resume <RUN> [--max-calls unlimited] 恢复原配置；自主目标须用 --no-questions 重新授权
 pause|cancel <RUN>                 暂停可恢复 / 取消终态（运行中可从另一终端发送）
 steer <RUN> "补充指令"             普通工作 Agent 下次安全调用时按序处理；可从另一终端发送
 steering <RUN>                     查看补充指令及待处理状态；steer --request-id ID 可幂等重试
@@ -54,7 +55,7 @@ review <RUN> [--decision accept_unknown|accept_prose_no_state|reject_rewrite|aba
 本地免密不自动携带官方Key；不读取桌面密钥，config set不保存密钥值。
 Ctrl+C 暂停当前运行。流式候选可能撤回；仅 completed + 文件产物表示长文交付完成。
 `
-const FLAGS = new Set(['draft', 'json', 'loopback', 'no-loopback', 'tools', 'no-review', 'thinking', 'no-thinking', 'accept-unknown-cost', 'web', 'no-web', 'tool-support', 'no-tool-support', 'accept', 'reject', 'help', 'version'])
+const FLAGS = new Set(['goal', 'no-questions', 'draft', 'json', 'loopback', 'no-loopback', 'tools', 'no-review', 'thinking', 'no-thinking', 'accept-unknown-cost', 'web', 'no-web', 'tool-support', 'no-tool-support', 'accept', 'reject', 'help', 'version'])
 const VALUES = new Set(['offset', 'data-dir', 'config', 'base-url', 'chat-path', 'model', 'protocol', 'key-env', 'max-tokens', 'context', 'max-calls', 'max-turns', 'token-budget', 'time-budget-ms', 'cost-budget', 'cost-currency', 'work-dir', 'doc-dir', 'session', 'target', 'question', 'text', 'decision', 'hash', 'revision', 'effort', 'extensions-dir', 'skill', 'plugin', 'allow-plugin-start', 'auth-header', 'input', 'output'])
 export function parse(args: string[]): { args: string[]; options: CliOptions } {
   VALUES.add('request-id'); VALUES.add('thinking-budget')

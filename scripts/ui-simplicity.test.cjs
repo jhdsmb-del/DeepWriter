@@ -16,7 +16,7 @@ test('navigation keeps decisive labels beside the shared line icons', () => {
 })
 
 test('desktop text has a readable floor, including font shorthands and lazy creative tools', () => {
-  for (const file of ['styles.css', 'ui-takeover.css', 'components/GalgameStudio.css', 'components/manuscript-reader.css', 'desktopUpdates.css']) {
+  for (const file of ['styles.css', 'ui-takeover.css', 'components/GalgameStudio.css', 'components/manuscript-reader.css', 'desktopUpdates.css', 'components/GoalMode.css']) {
     const css = read(file)
     for (const match of css.matchAll(/font-size:\s*(\d+(?:\.\d+)?)px|font:\s*(?:(?:normal|italic|[1-9]00)\s+)?(\d+(?:\.\d+)?)px/g)) {
       assert.ok(Number(match[1] ?? match[2]) >= 13, `${file}: ${match[0]}`)

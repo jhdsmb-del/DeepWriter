@@ -122,6 +122,7 @@ export default function App(): React.ReactNode {
     void decideNarrativeReview('accept_delta', delta as any).then((ok) => showToast(ok ? '已接受修正状态，任务继续' : '复核决策失败，请重新打开证据', ok ? 'success' : 'error'))
   }
   const continueWaitingRun = (run: (typeof recoverableRuns)[number]): void => {
+    if (run.config.goalMode === 'guided' || run.config.goalMode === 'autonomous') { openRunInspector(run.runId, 'activity'); return }
     if (run.errorCode === 'run_cost_unknown_price') {
       showToast('该任务已冻结缺失价格；补价不会修改历史预算。请停止该任务，再新建并确认费用。', 'info')
       setShowSettings(true)
@@ -228,7 +229,7 @@ export default function App(): React.ReactNode {
               <span key={run.runId} className="recover-item">
                 <button className="dw-recover-name" title={failure?.detail} onClick={() => openRunInspector(run.runId)}>{failure?.title ?? `${run.runId.slice(0, 8)} · ${run.status === 'waiting_user' ? '等待你的决定' : '可恢复'}`}</button>
                 {failure?.settings && <button className="dw-text-btn" onClick={() => setShowSettings(true)}>模型设置</button>}
-                {run.errorCode === 'story_ledger_epoch_invalidated' ? (
+                {run.config.goalMode ? <button className="dw-text-btn" onClick={() => openRunInspector(run.runId, 'activity')}>{run.config.goalMode === 'autonomous' ? '查看并重新授权' : '处理目标'}</button> : run.errorCode === 'story_ledger_epoch_invalidated' ? (
                   <>
                     <button className="dw-text-btn" onClick={() => continueWaitingRun(run)}>基于安全故事线新建分支</button>
                     <button className="dw-text-btn" onClick={() => openRunInspector(run.runId)}>查看</button>

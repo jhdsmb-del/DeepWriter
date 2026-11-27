@@ -26,6 +26,8 @@ export interface AgentEnv {
   workDir: string
   permissionMode?: import('../shared/types').PermissionMode
   permissionWorkspaceRoot?: string
+  /** Host-only frozen task policy; authority additionally requires a matching live grant. */
+  goalMode?: 'guided' | 'autonomous'
   docDir: string
   sessionId?: string
   /** R4-4：工具取消信号（协作取消；命令执行/长任务应监听并尽快终止） */
@@ -127,6 +129,12 @@ async function resolvePath(argsPath: unknown, defaultDir: string, suggestedName:
     const dir = path.dirname(p)
     await fs.mkdir(dir, { recursive: true })
     return p
+  }
+  if (env?.goalMode === 'autonomous') {
+    const target = path.join(env.workDir, suggestedName)
+    const permission = await fileOperationPermission(target, defaultDir, env, 'write')
+    if (permission.action !== 'allow') throw new Error(permission.reason)
+    return target
   }
   const result = await dialog.showSaveDialog({
     title: '保存文档',

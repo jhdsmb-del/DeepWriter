@@ -4,7 +4,7 @@
 
 先完整解压，不要从压缩包预览窗口运行。版本以 `complete-manifest.json` 和实际文件名为准；两端共用引擎，但默认独立保存会话、配置和凭据，不会自动互相导入数据。
 
-[本版更新](docs/RELEASE_NOTES_8.1.0.md) · [桌面指南](docs/QUICKSTART.md) · [终端指南](docs/CLI.md)
+[本版更新](docs/RELEASE_NOTES_8.2.0.md) · [桌面指南](docs/QUICKSTART.md) · [终端指南](docs/CLI.md)
 
 ## 先玩一个故事
 

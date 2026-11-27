@@ -77,6 +77,7 @@ export interface ExecutionSnapshot {
   clientRequestId: string
   sessionId: string
   runMode: DeepWriterMode
+  goalMode?: 'guided' | 'autonomous'
   modeProfileVersion: number
   workspace: string
   planMode: boolean
@@ -404,6 +405,7 @@ export function buildExecutionSnapshot(input: SnapshotInput): ExecutionSnapshot 
   const now = input.now ?? Date.now()
   const runMode: DeepWriterMode = (input.payload.mode as DeepWriterMode) ?? 'agent'
   if (input.payload.planAccess && (runMode !== 'agent' || input.payload.longMode || input.payload.phase !== 'plan')) throw new Error('只读审阅仅用于新 Agent 计划')
+  if (input.payload.goalMode && (runMode !== 'agent' || input.payload.longMode || input.payload.phase === 'plan')) throw new Error('目标模式仅用于普通 Agent 执行任务')
   const frozenWp7 = freezeWp7FeatureFlags(input.settings.wp7FeatureFlags)
   const profile: ModeProfile = getModeProfile(runMode)
   const targetChars = input.payload.targetChars ?? 0
@@ -500,6 +502,7 @@ export function buildExecutionSnapshot(input: SnapshotInput): ExecutionSnapshot 
     clientRequestId: input.payload.id,
     sessionId: input.sessionId,
     runMode,
+    ...(input.payload.goalMode ? { goalMode: input.payload.goalMode } : {}),
     modeProfileVersion: profile.version,
     ...(input.payload.planAccess === 'read_only' ? { agentPlan: { schemaVersion: 1 as const, access: 'read_only' as const } } : {}),
     ...(input.payload.planApproval ? { planApproval: { ...input.payload.planApproval } } : {}),

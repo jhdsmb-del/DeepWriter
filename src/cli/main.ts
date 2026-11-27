@@ -1,5 +1,6 @@
 import { readProjectBrief, saveProjectBrief } from '../main/projectBrief'
 import { getRunWorkPlan } from '../main/workPlan'
+import { getRunGoal } from '../main/goalMode'
 import { randomUUID } from 'node:crypto'
 import { promises as fs } from 'node:fs'
 import * as path from 'node:path'
@@ -37,6 +38,8 @@ async function main(): Promise<void> {
   if (options.help || (!args.length && !isTerminal) || args[0] === 'help') { process.stdout.write(HELP); return }
   const interactiveAgent = args[0] === 'agent' && args.length === 1 && !options.input && isTerminal
   const command = interactiveAgent ? 'interactive' : args[0] ?? 'interactive'
+  if (options['no-questions'] && !options.goal && command !== 'resume') throw new Error('--no-questions 只用于 agent --goal 或恢复同一自主目标')
+  if (options.goal && command !== 'agent') throw new Error('--goal 只用于一条明确的 agent 任务；交互中使用 /goal 任务')
   if (command === 'update') {
     const { runCliUpdate } = await import('./update')
     await runCliUpdate(args, options, __DEEPWRITER_VERSION__)
@@ -103,7 +106,7 @@ async function main(): Promise<void> {
       process.exitCode = result.status === 'completed' ? 0 : result.status === 'failed' || result.status === 'cancelled' ? 1 : 2
     }
     if (options.json) process.stdout.write(JSON.stringify({ type, data }, (_key, value) => typeof value === 'string' ? redact(value) : value) + '\n')
-    else if (!output || !['delta'].includes(type)) humanOutput(type, data)
+    else if (!output || !['delta','goal_answer'].includes(type)) humanOutput(type, data)
   }
   if (command === 'sources') { await printRunSources(dataDir, args, options.offset, emit); return }
   if (command === 'steer' || command === 'steering') { await localSteering(command, args, dataDir, options, emit); return }
@@ -194,7 +197,7 @@ async function main(): Promise<void> {
     else if (command === 'status') {
       const id = args[1]
       const row = id ? runtime.repo.getRun(id) : null
-      if (row) emit('status', { runId: row.run_id, sessionId: row.session_id, status: row.status, phase: row.phase, errorCode: row.error_code, errorMessage: row.error_message, artifacts: runtime.repo.getArtifactsByRun(row.run_id), budget: runtime.repo.getRunEvidence(row.run_id, 'run_provider_budget_v1'), workPlan: getRunWorkPlan(runtime.repo, row.run_id) })
+      if (row) emit('status', { runId: row.run_id, sessionId: row.session_id, status: row.status, phase: row.phase, errorCode: row.error_code, errorMessage: row.error_message, artifacts: runtime.repo.getArtifactsByRun(row.run_id), budget: runtime.repo.getRunEvidence(row.run_id, 'run_provider_budget_v1'), workPlan: getRunWorkPlan(runtime.repo, row.run_id), goal: getRunGoal(runtime.repo, row.run_id) })
       else if (id) emit('state', getState(id))
       else emit('status', { active: runtime.repo.listActiveRuns().map((run) => ({ runId: run.run_id, status: run.status, errorCode: run.error_code })) })
     } else if (command === 'usage') {
@@ -214,7 +217,9 @@ async function main(): Promise<void> {
     else if (command === 'approve') await runtime.approvePlan(required(args[1], 'RUN'), required(options.hash, 'hash'))
     else if (command === 'reject-plan') emit('plan', runtime.rejectPlan(required(args[1], 'RUN'), required(options.hash, 'hash')))
     else if (command === 'chat' || command === 'agent' || command === 'plan') {
-      await runtime[command](prompt!, typeof options.session === 'string' ? options.session : undefined)
+      const sessionId = typeof options.session === 'string' ? options.session : undefined
+      if (command === 'agent') await runtime.agent(prompt!, sessionId, options.goal ? (options['no-questions'] ? 'autonomous' : 'guided') : undefined)
+      else await runtime[command](prompt!, sessionId)
     } else if (command === 'write' || command === 'interview') {
       const state = await newInterview(prompt!, integer(options.target, 'target', 100))
       if (command === 'write' && terminal) await interactiveWrite(state)

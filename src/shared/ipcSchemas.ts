@@ -306,6 +306,7 @@ export const chatStartSchema = z
     id: z.string().min(1).max(128),
     sessionId: z.string().max(128).optional(),
     phase: z.enum(['plan', 'execute']).optional(),
+    goalMode: z.enum(['guided', 'autonomous']).optional(),
     planText: z.string().max(20000).optional(),
     planAccess: z.literal('read_only').optional(),
     planApproval: z.object({ runId: z.string().min(1).max(128), hash: z.string().regex(/^[a-f0-9]{64}$/) }).strict().optional(),
@@ -368,6 +369,9 @@ export const chatStartSchema = z
   })
   .strict()
   .superRefine((v, ctx) => {
+    if (v.goalMode && ((v.mode ?? 'agent') !== 'agent' || v.longMode || v.phase === 'plan')) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['goalMode'], message: '目标模式仅用于普通 Agent 执行任务' })
+    }
     // 仅长文模式允许实验（禁止死开关/滥用）
     if (v.deepWriteExperiment?.enabled === true && v.mode !== 'longwrite') {
       ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['deepWriteExperiment'], message: '角色监护实验仅长文模式（longwrite）允许开启' })
@@ -479,6 +483,7 @@ export const runsStoryRebaseSchema = runsGetSchema.extend({ branchId: safeId.opt
 export const runsResumeSchema = z.object({
   runId: z.string().min(1).max(128),
   removeCallLimit: z.literal(true).optional(),
+  reauthorizeGoal: z.literal(true).optional(),
   tokenBudget: z.number().int().min(1).max(2_000_000).optional()
 })
 export const runsRecentSchema = z.object({ limit: z.number().int().min(1).max(100).optional() })

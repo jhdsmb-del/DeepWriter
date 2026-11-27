@@ -331,7 +331,7 @@ interface StudioStore {
   grillLaunchRequest: GrillLaunchRequest | null
   toast: ToastState | null
   init: () => Promise<void>
-  send: (text: string, attachments?: AttachmentRef[], grillMe?: GrillMeState, quickBypass?: boolean) => Promise<SendResult>
+  send: (text: string, attachments?: AttachmentRef[], grillMe?: GrillMeState, quickBypass?: boolean, goalMode?: 'guided' | 'autonomous') => Promise<SendResult>
   stop: () => void
   setPendingAttachments: (list: PendingAttachment[] | ((prev: PendingAttachment[]) => PendingAttachment[]), sessionId?: string) => void
   showToast: (text: string, kind?: ToastKind) => void
@@ -344,7 +344,7 @@ interface StudioStore {
   loadSessions: () => Promise<void>
   /** 启动扫描跨重启待恢复运行（R4-4） */
   loadRecoverable: () => Promise<void>
-  resumeRun: (runId: string, tokenBudget?: number, removeCallLimit?: true) => Promise<boolean>
+  resumeRun: (runId: string, tokenBudget?: number, removeCallLimit?: true, reauthorizeGoal?: true) => Promise<boolean>
   rebaseStoryRun: (runId: string) => Promise<boolean>
   abandonRun: (runId: string) => Promise<boolean>
   decideRecovery: (decision: 'confirm_applied' | 'retry_not_applied' | 'rollback_then_retry' | 'abandon', note?: string) => Promise<boolean>
@@ -579,7 +579,7 @@ export const useStore = create<StudioStore>((set, get) => ({
           }
           return
         }
-        const idx = s.messages.findIndex((m) => m.id === id)
+        const idx = s.messages.findIndex((m) => m.id === id || m.id === `m_${id}_assistant`)
         if (idx < 0) return
         const msg = { ...s.messages[idx] }
         const isFinal =
@@ -725,7 +725,7 @@ export const useStore = create<StudioStore>((set, get) => ({
       errUnsub = ds.onChatError(({ id, message }: { id: string; message: string }) => {
         streamBatcher?.flush()
         const s = get()
-        const idx = s.messages.findIndex((m) => m.id === id)
+        const idx = s.messages.findIndex((m) => m.id === id || m.id === `m_${id}_assistant`)
         if (idx < 0) return
         const messages = [...s.messages]
         messages[idx] = { ...messages[idx], status: 'error', error: message }
@@ -806,7 +806,7 @@ export const useStore = create<StudioStore>((set, get) => ({
 
   /** 发送：等待 main 返回 ack（{runId,status:'queued'}）后才算成功；ack 前不清草稿/附件。
    *  返回 {ok}：main 拒绝或异常时回滚乐观状态并返回 ok:false（Composer 恢复草稿）。 */
-  send: async (text, attachments, grillState, quickBypass = false) => {
+  send: async (text, attachments, grillState, quickBypass = false, goalMode) => {
     const s = get()
     const unavailable: PendingAttachment | undefined = !grillState ? attachments?.find((item: PendingAttachment) => item.state === 'failed' || item.state === 'parsing') : undefined
     if (unavailable) return { ok: false, reason: 'attachment_not_ready', error: `附件「${unavailable.name}」${unavailable.state === 'parsing' ? '仍在解析' : '尚未读取成功'}，请先处理或移除后再发送` }
@@ -890,6 +890,7 @@ export const useStore = create<StudioStore>((set, get) => ({
           // R4-6：runConfig 快照输入（main 持久化）
           mode: runMode.mode,
           workspace: runMode.workspace,
+          ...(goalMode && phase === 'execute' && runMode.mode === 'agent' && runMode.workspace === 'chat' && !runMode.longMode ? { goalMode } : {}),
           strongConstraints: visibleStrongConstraints(s.settings, s.story, runMode.longMode, text),
           contextSelection: { mode: preview.mode, preferenceRevision: preview.policyRevision, previewId: preview.previewId },
           ...(s.pendingStoryScope ? { storyScope: s.pendingStoryScope } : {}),
@@ -1247,12 +1248,20 @@ export const useStore = create<StudioStore>((set, get) => ({
     }
   },
 
-  resumeRun: async (runId, tokenBudget, removeCallLimit) => {
+  resumeRun: async (runId, tokenBudget, removeCallLimit, reauthorizeGoal) => {
     const ds = (window as any).ds
     if (!ds?.runsResume) return false
+    const goalResume = get().recoverableRuns.some(run => run.runId === runId && run.config.goalMode)
+    const previousReply = goalResume ? get().messages.find(message => message.role === 'assistant' && (message.id === runId || message.id === `m_${runId}_assistant`)) : undefined
+    if (previousReply) set(state => ({ messages: state.messages.map(message => message.id === previousReply.id ? { ...message, content: '', status: 'thinking' } : message) }))
+    const rollbackReply = (): void => {
+      if (!previousReply) return
+      set(state => ({ messages: state.messages.map(message => message.id === previousReply.id && message.status === 'thinking' && !message.content ? previousReply : message) }))
+    }
     try {
-      const r = await ds.runsResume(runId, tokenBudget, removeCallLimit)
+      const r = await ds.runsResume(runId, tokenBudget, removeCallLimit, reauthorizeGoal)
       if (r?.ok) {
+        void get().resyncRun(runId)
         if (r.storyEpochInvalidated) {
           get().showToast(r.message ?? '故事线已撤回，请基于当前安全故事线新建分支', 'info')
           await get().loadRecoverable()
@@ -1316,8 +1325,11 @@ export const useStore = create<StudioStore>((set, get) => ({
         })
         return true
       }
+      rollbackReply()
+      if (r?.message) get().showToast(r.message, 'error')
       return false
     } catch {
+      rollbackReply()
       return false
     }
   },

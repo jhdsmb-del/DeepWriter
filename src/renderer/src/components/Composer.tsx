@@ -18,6 +18,7 @@ import { ATTACHMENT_PICKER_HINT } from '../../../shared/attachmentPreview'
 import { modelFailureNotice, type ModelFailureNotice } from '../modelFailure'
 import { useWorkSteering } from '../hooks/useWorkSteering'
 import './WorkSteering.css'
+import './GoalMode.css'
 
 export default function Composer({ onOpenSettings }: { onOpenSettings?: () => void }): React.ReactNode {
   const text = useStore((state) => state.composerText)
@@ -65,6 +66,16 @@ export default function Composer({ onOpenSettings }: { onOpenSettings?: () => vo
   // mode/workspace 是入口的事实源；longMode 只是兼容旧状态的提示位。
   // 任何一项表明当前在长文工作面，都必须进入 Grill Me，避免状态漂移后直写。
   const guidedLongwrite = deriveWritingRunMode({ workspace, mode, longMode }).longMode
+  const goalAvailable = workspace === 'chat' && mode === 'agent' && !guidedLongwrite && !readOnlyPlan
+  const [goalEnabled, setGoalEnabled] = useState(false)
+  const [autonomousGoal, setAutonomousGoal] = useState(false)
+  // Bind the choice before typing creates the first session; changing sessions
+  // must clear task authorization, but creating this draft must not erase it.
+  const goalSession = useRef(currentSessionId)
+  useEffect(() => {
+    if (goalSession.current !== currentSessionId) { setGoalEnabled(false); setAutonomousGoal(false); goalSession.current = currentSessionId }
+  }, [currentSessionId])
+  useEffect(() => { setGoalEnabled(false); setAutonomousGoal(false) }, [workspace, mode, readOnlyPlan])
 
   const attachmentPreviewKey = pendingAttachments.map((item) => `${item.fileRefId}:${item.size}`).join('|')
   useLayoutEffect(() => {
@@ -144,8 +155,13 @@ export default function Composer({ onOpenSettings }: { onOpenSettings?: () => vo
           if (startGuidedLongwrite(t, pendingAttachments)) useStore.getState().clearSubmittedText(sessionId, submittedText)
           return
         }
-        const result = await send(t, pendingAttachments, undefined, quickBypass)
-        if (result.ok) useStore.getState().clearSubmittedText(sessionId, submittedText)
+        const goalMode = goalAvailable && goalEnabled ? autonomousGoal ? 'autonomous' : 'guided' : undefined
+        const result = await send(t, pendingAttachments, undefined, quickBypass, goalMode)
+        if (result.ok) {
+          setGoalEnabled(false)
+          setAutonomousGoal(false)
+          useStore.getState().clearSubmittedText(sessionId, submittedText)
+        }
         else {
           const notice = modelFailureNotice(undefined, result.error)
           if (notice) setSubmitError(notice)
@@ -196,12 +212,19 @@ export default function Composer({ onOpenSettings }: { onOpenSettings?: () => vo
           )}
         </div>
       )}
+      {goalAvailable && !running && <div className="composer-goal-options">
+        <div className="composer-goal-controls">
+          <label className="composer-goal-choice" title="把需求转成可验收的目标，持续执行并检查结果"><input type="checkbox" checked={goalEnabled} disabled={submitting || closing} onChange={event => { goalSession.current = useStore.getState().ensureSessionId(); setGoalEnabled(event.target.checked); setAutonomousGoal(false) }} /><span>Goal 模式</span></label>
+          {goalEnabled && <label className="composer-goal-choice"><input type="checkbox" checked={autonomousGoal} disabled={submitting || closing} onChange={event => setAutonomousGoal(event.target.checked)} aria-describedby={autonomousGoal ? 'goal-autonomy-explanation' : undefined} /><span>不提问，自主执行</span><span className="composer-goal-once">仅本次任务</span></label>}
+        </div>
+        {goalEnabled && autonomousGoal && <div className="composer-goal-authorization" id="goal-autonomy-explanation"><WorkingDirectoryControl /><span>本次预授权项目文件和已授权命令；联网沿用当前设置，可随时停止。</span></div>}
+      </div>}
       <textarea
         ref={taRef}
         value={text}
         disabled={closing}
         aria-label="任务内容"
-        placeholder={steering.canSteer ? '给当前任务补充要求…' : '发消息，或描述要完成的任务…'}
+        placeholder={steering.canSteer ? '给当前任务补充要求…' : goalAvailable && goalEnabled ? '这次要完成什么？' : '发消息，或描述要完成的任务…'}
         rows={2}
         onChange={(e) => {
           setText(e.target.value)
@@ -247,7 +270,7 @@ export default function Composer({ onOpenSettings }: { onOpenSettings?: () => vo
         <span>{draftSaveError}</span>
         <button type="button" className="dw-text-btn" onClick={() => void flushDrafts().catch(() => undefined)}>重试保存</button>
       </div>}
-      {!!steering.view?.messages.length && <details className="composer-steering" data-testid="work-steering-receipts">
+      {!!steering.view?.messages.length && (running || steering.view.messages.some(item => item.status === 'pending')) && <details className="composer-steering" data-testid="work-steering-receipts">
         <summary>补充指令 · {steering.view.messages.filter(item => item.status === 'pending').length} 条待处理</summary>
         <ul>{steering.view.messages.filter((item, index) => item.status === 'pending' || index >= steering.view!.messages.length - 6).map(item => <li key={item.requestId}>
           {(item.status === 'applied' || steering.view!.messages.some(message => message.status === 'applied')) && <span>{item.status === 'applied' ? '已加入运行上下文' : '待处理'}</span>}<p>{item.text}</p>
@@ -267,7 +290,7 @@ export default function Composer({ onOpenSettings }: { onOpenSettings?: () => vo
                 <Switch checked={webActive} onChange={(enabled) => void changeWebAccess(enabled)} label={web.ready ? "联网搜索" : web.hint} compact disabled={!web.ready || webAccessSaving} />
               </div>
               {!guidedLongwrite && mode === 'agent' && <Switch checked={readOnlyPlan} onChange={enabled => void updateSettings({ planMode: enabled })} label="只读审阅" compact disabled={!settingsReady || running || submitting} />}
-              <WorkingDirectoryControl />
+              {!(goalAvailable && goalEnabled && autonomousGoal) && <WorkingDirectoryControl />}
               <AgentPresetControl />
             </div>
           </details>
@@ -287,7 +310,7 @@ export default function Composer({ onOpenSettings }: { onOpenSettings?: () => vo
               </button>}
               </>
             ) : (
-              <button type="button" className="btn primary composer-send" aria-label={submitting ? '提交中' : guidedLongwrite ? '开始梳理' : readOnlyPlan && mode === 'agent' ? '只读审阅' : '发送'} title={submitting ? '提交中…' : guidedLongwrite ? '开始梳理' : readOnlyPlan && mode === 'agent' ? '只读查稿并提出方案，不修改文件' : '发送（Enter）；换行（Shift+Enter）'} onClick={() => submit()} disabled={!text.trim() || submitting || closing || webAccessSaving}>
+              <button type="button" className="btn primary composer-send" aria-label={submitting ? '提交中' : guidedLongwrite ? '开始梳理' : readOnlyPlan && mode === 'agent' ? '只读审阅' : goalAvailable && goalEnabled ? '开始目标任务' : '发送'} title={submitting ? '提交中…' : guidedLongwrite ? '开始梳理' : readOnlyPlan && mode === 'agent' ? '只读查稿并提出方案，不修改文件' : '发送（Enter）；换行（Shift+Enter）'} onClick={() => submit()} disabled={!text.trim() || submitting || closing || webAccessSaving}>
                 <Icon name="arrowUp" size={21} />
               </button>
             )}

@@ -3,6 +3,10 @@ import { assessFileDelivery, FILE_DELIVERY_EVIDENCE, newFileDeliveryState, type 
 import { appendStreamText, streamText } from './streamText'
 import { compactWorkPlanHistory, latestActivePlan, WORK_PLAN_CONTINUE } from '../workPlan'
 import { WORK_PLAN_TOOL } from '../../shared/workPlan'
+import { GOAL_TOOL, GOAL_EVIDENCE_KIND, isGoalModeConfig, readGoalSnapshot, type GoalSnapshot } from '../../shared/goalMode'
+import { applyGoalUpdate, candidateIsBare, compactGoalHistory, goalModePrompt } from '../goalMode'
+import { decodeToolResult } from '../toolResultView'
+import { goalCandidateTurns } from './goalAnswer'
 import { isWorkSteeringConfig } from '../../shared/workSteering'
 import { modelVisibleOutput, prepareToolTurnOutput, replayToolTurnOutput } from './toolTurnOutput'
 import { planToolAllowList } from '../../shared/agentPlanPolicy'
@@ -121,6 +125,7 @@ export const IDEMPOTENT_TOOLS: ReadonlySet<string> = new Set([
   'search_files',
   ...WORK_FILE_TOOL_NAMES,
   WORK_PLAN_TOOL,
+  GOAL_TOOL,
   'generate_markdown_doc',
   'generate_docx_doc',
   'generate_pdf_doc'
@@ -193,6 +198,7 @@ export interface CreateAgentRunEngineOpts {
     messages: DsMessage[]
     purpose?: 'writer' | 'critic' | 'editor'
     liveToolProjection?: LiveToolProjection
+    goalStage?: GoalSnapshot['status']
     /** Stable identity shared by all inner attempts of this logical call. */
     logicalCallId?: string
     /** Called immediately before every provider boundary.  The engine
@@ -1278,6 +1284,7 @@ export function createAgentRunEngine(opts: CreateAgentRunEngineOpts): AgentRunEn
         turnSeq: input.turnSeq,
         round: input.round,
         messages,
+        ...((input.purpose ?? 'writer') === 'writer' && isGoalModeConfig(getConfig(input.runId)) ? { goalStage:(await loadGoal(input.runId))?.status } : {}),
         ...(shortened ? { liveToolProjection: shortened.projection } : {}),
         purpose: input.purpose,
         logicalCallId,
@@ -3667,6 +3674,13 @@ export function createAgentRunEngine(opts: CreateAgentRunEngineOpts): AgentRunEn
     const updated: RunRecord = { ...m.run, ...patch, updatedAt: now() }
     await store.updateRun(runId, patch)
     m.run = updated
+    if ((patch.status === 'waiting_user' || patch.status === 'recovery_required') && isGoalModeConfig(getConfig(runId))) {
+      const row = await store.getRunEvidence(runId,GOAL_EVIDENCE_KIND)
+      const goal = row && readGoalSnapshot(row.json)
+      if (goal && goal.status !== 'blocked') await saveGoal({ ...goal, status:'blocked', revision:goal.revision+1,
+        progress:patch.errorMessage ?? '目标执行已暂停，等待所需条件',
+        blockedOn:{kind:'external',reason:patch.errorMessage ?? '目标执行已暂停',nextAction:patch.status === 'recovery_required' ? '先确认未知工具副作用并作恢复决定；不自动重放。' : '根据暂停原因补充输入或预算、明确继续，也可停止任务。'} })
+    }
     onRunUpdate(updated)
     return updated
   }
@@ -4063,6 +4077,88 @@ export function createAgentRunEngine(opts: CreateAgentRunEngineOpts): AgentRunEn
     return false
   }
 
+  const saveGoal = async (goal: GoalSnapshot): Promise<GoalSnapshot> => {
+    const saved = { ...goal, updatedAt: now() }
+    await store.saveRunEvidence(goal.runId, GOAL_EVIDENCE_KIND, JSON.stringify(saved))
+    emit(goal.runId, { type: 'goal_updated', runId: goal.runId })
+    return saved
+  }
+  const loadGoal = async (runId: string): Promise<GoalSnapshot | null> => {
+    const config = getConfig(runId)
+    if (!isGoalModeConfig(config)) return null
+    const row = await store.getRunEvidence(runId, GOAL_EVIDENCE_KIND)
+    if (row) {
+      const saved = readGoalSnapshot(row.json)
+      if (!saved || saved.runId !== runId || saved.mode !== config.goalMode) throw new Error('goal_state_corrupt：目标记录或冻结模式不可验证，未自动重建或重放')
+      return saved
+    }
+    const original = (await store.getTurns(runId)).filter(t=>t.role === 'user').sort((a,b)=>a.turnSeq-b.turnSeq)[0]
+    if (!original?.content.trim()) throw new Error('goal_objective_missing：缺少原始目标，未开始执行')
+    return saveGoal({ schemaVersion:1, runId, mode:config.goalMode as 'guided'|'autonomous', objective:original.content,
+      status:'planning', outcomes:[], progress:'正在把原始目标转成具体成果与验收条件', revision:0, updatedAt:now(), stalledRounds:0 })
+  }
+  const pauseGoal = async (goal: GoalSnapshot, reason: string, code = 'goal_blocked'): Promise<void> => {
+    await saveGoal({ ...goal, status:'blocked', revision:goal.revision+1, progress:reason,
+      blockedOn:goal.blockedOn ?? { kind:'external', reason, nextAction:'补充缺失条件或调整任务后继续；也可停止本任务。' } })
+    await patchRun(goal.runId, { status:'waiting_user', phase:'paused', errorCode:code, errorMessage:reason })
+    emit(goal.runId, { type:'phase', phase:'paused', title:'目标尚未完成', detail:reason })
+  }
+  const executeGoalTool = async (runId: string, argsJson: string, toolCallId: string): Promise<string> => {
+    const goal = await loadGoal(runId)
+    if (!goal) throw new Error('goal_not_enabled：此运行未冻结目标模式')
+    if (goal.lastToolCallId === toolCallId) return JSON.stringify({ ok:true, message:'目标记录已保存', goalRevision:goal.revision })
+    const args: unknown = JSON.parse(argsJson)
+    if (!args || typeof args !== 'object' || Array.isArray(args)) throw new Error('goal_invalid_input')
+    let updated = applyGoalUpdate(goal,args as Record<string,unknown>,await store.getTurns(runId),await store.getToolCalls(runId))
+    if (updated.status === 'completed' && !await guardFileDelivery(runId,'final')) {
+      const paused = mem.get(runId)?.run
+      updated = { ...updated, status:paused?.status === 'waiting_user' ? 'blocked' : 'active', candidateTurnId:undefined, lastCandidateTurnId:goal.candidateTurnId,
+        outcomes:updated.outcomes.map(o=>({...o,status:'pending',evidence:[]})), progress:'原目标要求的实际文件尚未通过交付检查，继续修正。',
+        ...(paused?.status === 'waiting_user' ? {blockedOn:{kind:'external' as const,reason:paused.errorMessage ?? '文件尚未交付',nextAction:'依据实际文件交付检查解除阻塞后继续。'}} : {}),
+        originalObjectiveReview:'原目标包含实际文件交付；现有答案/回执不足以证明文件满足交付要求。依据文件交付检查继续修正，不得仅以答案验收。' }
+    }
+    await saveGoal({ ...updated, lastToolCallId:toolCallId })
+    return JSON.stringify({ ok:true, message:updated.status === 'completed' ? '原始目标与逐项成果已验收' : updated.status === 'active' && args && (args as Record<string,unknown>).action === 'review' ? '验收发现缺口，请依据原目标继续修复并交付新候选成果' : '目标进展已保存', goalRevision:updated.revision, status:updated.status })
+  }
+  /** A stop is a candidate, never success. The next real provider round must
+   * review the raw objective and persisted receipts. A repeated status message
+   * cannot renew the supervision allowance, including after restart. */
+  const superviseGoalStop = async (runId: string, turn: TurnRecord): Promise<boolean> => {
+    let goal = await loadGoal(runId)
+    if (!goal) return true
+    if (goal.status === 'completed') return true
+    if (goal.status === 'blocked') { await pauseGoal(goal,goal.blockedOn?.reason ?? '目标存在未解除的阻塞'); return false }
+    const turns = await store.getTurns(runId)
+    let instruction: string
+    if (!goal.outcomes.length) {
+      instruction = '先调用 update_goal define：从原始目标提炼具体成果、验收条件和 answer/tool 证据方式，然后执行。仅说 done 或陈述计划不能完成目标。'
+    } else if (goal.status === 'reviewing') {
+      instruction = '现在处于成果验收，不是结束：调用 update_goal review，回到原始目标逐项核对，用真实候选答案或工具回执原句验证；发现缺口提交 satisfied:false 后立即继续修复。不要复述进度。'
+    } else if (candidateIsBare(goalCandidateTurns(turns,turn.turnId).map(t=>t.content).join(''))) {
+      instruction = '当前只有完成声明，没有可用交付。继续实际工作，交付完整成果后再进入原始目标验收；纯文字任务直接写出实际答案。'
+    } else {
+      const previousId = goal.candidateTurnId ?? goal.lastCandidateTurnId
+      const previous = previousId ? turns.find(t=>t.turnId === previousId) : undefined
+      const unchanged = previous?.content.trim() === turn.content.trim()
+      if (!unchanged) {
+        goal = { ...goal, status:'reviewing', candidateTurnId:turn.turnId, stalledRounds:0 }
+        instruction = `候选成果已保存，candidateTurnId=${turn.turnId}。现在进行一次原目标验收：逐项检查真实交付与原始要求、遗漏及负面约束，使用 update_goal review 提交 originalObjectiveReview、originalSatisfied 和每项 checks。answer 引用此 candidateTurnId 的真实原句；tool 引用真实成功 toolCallId 与原句并说明相关性，必要时先读回核验。发现缺口必须 satisfied:false 后继续修复；不能把清单勾选或口头 done 当作完成。`
+      } else instruction = '候选成果与上次完全相同，没有修复已指出的缺口。请执行有针对性的实际修正，再交付新成果；真实无法继续则 blocked。'
+    }
+    const repeated = goal.lastReminder === instruction
+    const stalledRounds = repeated ? goal.stalledRounds + 1 : goal.stalledRounds
+    goal = await saveGoal({ ...goal, revision:goal.revision+1, stalledRounds, lastReminder:instruction })
+    if (stalledRounds >= 1) {
+      await pauseGoal(goal,'目标尚未验收；连续回复没有执行所需的目标定义、实际交付或验收，已停止空转。请补充条件或调整任务后继续。','goal_no_progress')
+      return false
+    }
+    const seq = Math.max(0,...turns.map(t=>t.turnSeq))+1
+    await store.appendTurn({ turnId:randomUUID(), runId, turnSeq:seq, role:'system', content:`[目标监护]\n${instruction}`, createdAt:now() })
+    const m = mem.get(runId)
+    if (m) m.nextTurnSeq = seq+1
+    return false
+  }
+
   const finalize = async (
     runId: string,
     status: 'completed' | 'failed' | 'cancelled' | 'recovery_required',
@@ -4073,6 +4169,12 @@ export function createAgentRunEngine(opts: CreateAgentRunEngineOpts): AgentRunEn
     const m = mem.get(runId)
     if (!m || m.done) return
     if (status !== 'completed') await guardFileDelivery(runId, 'terminal')
+    const goal = await loadGoal(runId)
+    if (goal) {
+      if (status === 'completed' && goal.status !== 'completed') throw new Error('goal_not_reviewed：原始目标尚未完成证据验收')
+      if (status !== 'completed') await saveGoal({ ...goal, status:status === 'cancelled' ? 'stopped' : status === 'failed' ? 'failed' : 'blocked', revision:goal.revision+1,
+        progress:extra.errorMessage ?? (status === 'cancelled' ? '用户已停止目标' : '运行未完成，请查看运行状态与恢复条件') })
+    }
     m.done = true
     const run = await patchRun(runId, { status, phase: status, ...extra })
     emit(runId, { type: 'terminal', run })
@@ -4086,6 +4188,13 @@ export function createAgentRunEngine(opts: CreateAgentRunEngineOpts): AgentRunEn
   const finalizeCompleted = async (runId: string): Promise<void> => {
     const config = getConfig(runId)
     if (!await guardFileDelivery(runId, 'final')) return
+    const acceptedGoal = await loadGoal(runId)
+    if (acceptedGoal?.status === 'completed' && acceptedGoal.candidateTurnId) {
+      const answer = goalCandidateTurns(await store.getTurns(runId),acceptedGoal.candidateTurnId).map(t=>t.content).join('')
+      const fileState = await store.getRunEvidence(runId,FILE_DELIVERY_EVIDENCE)
+      const priorReplace = fileState ? Number((JSON.parse(fileState.json) as FileDeliveryState).replaceRevision ?? 0) : 0
+      emit(runId,{type:'content_replace',content:answer,revision:Math.max(now(),priorReplace+1),contentHash:writingTextHash(answer)})
+    }
     const delivery = config.deliveryContract as { manuscriptFile?: unknown } | undefined
     if (delivery?.manuscriptFile === true) {
       try {
@@ -4297,10 +4406,16 @@ export function createAgentRunEngine(opts: CreateAgentRunEngineOpts): AgentRunEn
       let toolBudgetFailure: RunBudgetExceededError | null = null
       try {
         if (batchBudgetFailure.current) throw batchBudgetFailure.current
+        if (m.run.status === 'waiting_user' && isGoalModeConfig(getConfig(runId))) throw new Error('goal_paused：目标已经暂停，本批后续操作未执行；待用户解除阻塞后再决定')
         const planTools = planToolAllowList(getConfig(runId))
         if (planTools && !planTools.includes(t.name)) throw new Error('plan_read_only：只读审阅拒绝写盘、命令和扩展工具；请先批准保存的方案，再按正常权限执行')
         m.controller.signal.throwIfAborted()
-        const raw = await executeBudgetedTool(t.name, t.arguments, requested.toolCallId, runId, perToolReadBudget, nonInteractiveLocalRead)
+        const goal = await loadGoal(runId)
+        if (goal && t.name === WORK_PLAN_TOOL) throw new Error('goal_progress_tool：目标模式用 update_goal 记录成果与验收，不另建工作清单代替执行')
+        if (t.name !== GOAL_TOOL && goal && (!goal.outcomes.length || goal.status === 'blocked' || goal.status === 'completed')) throw new Error('goal_define_first：先定义目标成果；阻塞或验收完成后不可继续调用执行工具')
+        const raw = t.name === GOAL_TOOL
+          ? await executeGoalTool(runId,t.arguments,requested.toolCallId)
+          : await executeBudgetedTool(t.name, t.arguments, requested.toolCallId, runId, perToolReadBudget, nonInteractiveLocalRead)
         if (nonInteractiveLocalRead) m.controller.signal.throwIfAborted()
         // R4.2 A5 补充（任务书 A5.7）：工具大输出先落 artifact，只向模型发送摘要与必要片段
         const output = await prepareToolTurnOutput(t.name, raw, text => spillToolResult(runId, t, text))
@@ -4341,6 +4456,25 @@ export function createAgentRunEngine(opts: CreateAgentRunEngineOpts): AgentRunEn
       }
       await store.appendTurn(toolTurn)
       emit(runId, { type: 'turn', turn: toolTurn })
+      const goal = await loadGoal(runId)
+      if (goal && !budgetFailure) {
+        const decoded = decodeToolResult(completed)
+        const permissionFailure = !decoded.ok && /permission|授权|拒绝|denied|not_allowed|expired/iu.test(decoded.result)
+        if (goal.status === 'blocked' || permissionFailure) {
+          const reason = permissionFailure ? `工具授权未满足：${decoded.result}` : goal.blockedOn?.reason ?? '目标存在阻塞'
+          await pauseGoal(permissionFailure ? { ...goal, blockedOn:{kind:'permission',reason,nextAction:'需要用户明确授权或调整范围；不自动重试被拒绝操作。'} } : goal,reason)
+        } else if (completed.name === GOAL_TOOL || completed.name === WORK_PLAN_TOOL) {
+          const stalled = decoded.ok ? goal.stalledRounds : goal.stalledRounds+1
+          if (!decoded.ok) await saveGoal({ ...goal, stalledRounds:stalled, revision:goal.revision+1 })
+          if (stalled >= 3) await pauseGoal({ ...goal, stalledRounds:stalled },'连续目标更新没有新的实际成果或有效验收，已停止空转。请修正任务条件后继续。','goal_no_progress')
+        } else if (completed.name !== GOAL_TOOL && completed.name !== WORK_PLAN_TOOL) {
+          const previous = (await store.getToolCalls(runId)).filter(t=>t.toolCallId !== completed.toolCallId && t.name === completed.name && t.argsJson === completed.argsJson)
+          const duplicate = previous.some(t=>t.resultJson === completed.resultJson)
+          const stalled = duplicate ? goal.stalledRounds+1 : 0
+          await saveGoal({ ...goal, stalledRounds:stalled, revision:goal.revision+1 })
+          if (stalled >= 2 || duplicate && !decoded.ok) await pauseGoal(goal,`相同工具操作没有取得新的有效结果：${completed.name}。已停止重复调用，需改变方法或解除阻塞。`,'goal_no_progress')
+        }
+      }
       if (budgetFailure) {
         // Complete the protocol responses for the already-declared batch,
         // without executing later operations after the budget refusal.
@@ -4434,6 +4568,12 @@ export function createAgentRunEngine(opts: CreateAgentRunEngineOpts): AgentRunEn
     // before taking its input snapshot, not one stale model request later.
     if (m.run.status === 'waiting_user' || m.run.status === 'recoverable') await patchRun(runId, { status: 'running', phase: 'thinking' })
     const added = await store.consumeWorkSteering(runId, m.run.sessionId)
+    if (added.length) {
+      const goal = await loadGoal(runId)
+      if (goal) await saveGoal({ ...goal, status:goal.outcomes.length ? 'active' : 'planning', blockedOn:undefined,
+        candidateTurnId:undefined, lastReminder:undefined, stalledRounds:0, revision:goal.revision+1,
+        progress:'已收到用户补充，依据原目标和新输入继续执行' })
+    }
     for (const turn of added) {
       m.nextTurnSeq = Math.max(m.nextTurnSeq, turn.turnSeq + 1)
       emit(runId, { type: 'turn', turn })
@@ -4467,6 +4607,11 @@ export function createAgentRunEngine(opts: CreateAgentRunEngineOpts): AgentRunEn
       }
     }
     const runConfig = getConfig(runId)
+    await loadGoal(runId)
+    if (isGoalModeConfig(runConfig) && (await store.getToolCalls(runId)).some(t=>['requested','running','side_effect_unknown'].includes(t.status))) {
+      await patchRun(runId,{status:'recovery_required',phase:'recovery_required',errorCode:'goal_tool_effect_unknown',errorMessage:'中断前的工具结果尚未确认；先作恢复决定，不自动重放或继续调用模型。'})
+      return
+    }
     if (runConfig.sceneContracts !== undefined && runConfig.sceneContracts !== null && !sceneContractPlanValid(runConfig.sceneContracts)) {
       await finalize(runId, 'failed', { errorCode: 'scene_contract_plan_invalid', errorMessage: '已冻结的场景契约计划非法；不会降级为无场景约束的普通长文或发起模型调用。' })
       return
@@ -4828,7 +4973,10 @@ export function createAgentRunEngine(opts: CreateAgentRunEngineOpts): AgentRunEn
         : longWritePlan
           ? buildLongWriteContextMessages(writerContextTurns, longWritePlan, rounds)
           : null
-      const messages = contextProjection?.messages ?? buildMessages(contextTurns)
+      const rawMessages = contextProjection?.messages ?? buildMessages(contextTurns)
+      const messages = isGoalModeConfig(runConfig) ? compactGoalHistory(rawMessages) : rawMessages
+      const goalContext = await loadGoal(runId)
+      if (goalContext) messages.push({ role:'system', content:goalModePrompt(goalContext) })
       if (isEditorialWriting(runConfig)) {
         for (const message of messages) if (message.role === 'system' && message.content.startsWith('当前长文编排进度：')) message.content = message.content.replace('大纲、人物和约束', '大纲、材料与作者约定')
       }
@@ -5589,6 +5737,7 @@ export function createAgentRunEngine(opts: CreateAgentRunEngineOpts): AgentRunEn
         await guardFileDelivery(runId, 'observe')
         await executeTools(runId, pending, turnId, cycleReadBudgetChars)
         if (m.run.status === 'waiting_user' || m.run.status === 'recovery_required' || m.done) return
+        if ((await loadGoal(runId))?.status === 'completed') { await finalizeCompleted(runId); return }
         continue
       }
       if (finishReason === null) {
@@ -5624,9 +5773,16 @@ export function createAgentRunEngine(opts: CreateAgentRunEngineOpts): AgentRunEn
         m.nextTurnSeq = turnSeq+2
         continue
       }
+      if (finishReason === 'stop' && isGoalModeConfig(runConfig)) {
+        const candidate = await upsertTurn()
+        if (!await superviseGoalStop(runId,candidate)) {
+          if (m.run.status === 'waiting_user' || m.done) return
+          continue
+        }
+      }
       // A course correction follows actual progress, rather than a fixed run-wide quota.
       // The marker survives recovery; a real dependency yields to the user immediately.
-      if (finishReason === 'stop' && runConfig.runMode === 'agent' && !longWrite && !runConfig.planMode &&
+      if (finishReason === 'stop' && !isGoalModeConfig(runConfig) && runConfig.runMode === 'agent' && !longWrite && !runConfig.planMode &&
         (runConfig.toolPolicy as { allowList?: string[] } | undefined)?.allowList?.includes(WORK_PLAN_TOOL)) {
         const plan = latestActivePlan(messages)
         if (plan && plan.steps.some(step => step.status !== 'done')) {
@@ -6628,6 +6784,9 @@ export function createAgentRunEngine(opts: CreateAgentRunEngineOpts): AgentRunEn
       }
     }
     m.nextTurnSeq = nextTurnSeq
+    if (isGoalModeConfig(getConfig(runId)) && (await store.getToolCalls(runId)).some(t=>t.status === 'side_effect_unknown')) {
+      await patchRun(runId,{status:'recovery_required',phase:'recovery_required',errorCode:'goal_tool_effect_unknown',errorMessage:'中断前的工具副作用未知；请先明确恢复决定，不自动重放。'})
+    }
     // R4.2 A4（S-03）：restore 只装载、不静默提升状态——recovery_required 保持 recovery_required，
     // 是否继续由用户显式决策（runs:resume 只领养展示；applyRecoveryDecision 后才 step）
     // R4.4 Gate 2（B-03）：恢复 completion controller（强杀于 validating/continuing 后重启，
@@ -6667,7 +6826,8 @@ export function createAgentRunEngine(opts: CreateAgentRunEngineOpts): AgentRunEn
     for (const r of actives) {
       // R4.1 S-04：cancelling/cancel_requested 同为可恢复的 active runs——提升为 recoverable 供恢复入口列举
       // R4.5 Gate 4：waiting_user（完成校验暂停等用户决策）同样可从恢复入口 resume
-      if (r.status === 'waiting_user' && (r.errorCode === 'narrative_state_pending_review' || r.errorCode === 'run_provider_call_cap')) {
+      if (r.status === 'waiting_user' && (r.errorCode === 'narrative_state_pending_review' || r.errorCode === 'run_provider_call_cap' ||
+        isGoalModeConfig(JSON.parse(r.configJson)))) {
         // Semantic review is an explicit user decision boundary. Keep the
         // durable waiting_user state instead of relabelling it recoverable;
         // the generic resume UI must not auto-step this run after restart.
@@ -6747,7 +6907,8 @@ export function createAgentRunEngine(opts: CreateAgentRunEngineOpts): AgentRunEn
           readBudgetChars = budget.schemaVersion === 1 && budget.turnId === tc.turnId && Number.isSafeInteger(budget.readBudgetChars) && budget.readBudgetChars >= 0 ? budget.readBudgetChars : 0
         } catch { readBudgetChars = 0 }
       }
-      const raw = await executeBudgetedTool(tc.name, tc.argsJson, tc.toolCallId, runId, readBudgetChars)
+      const raw = tc.name === GOAL_TOOL ? await executeGoalTool(runId,tc.argsJson,tc.toolCallId)
+        : await executeBudgetedTool(tc.name, tc.argsJson, tc.toolCallId, runId, readBudgetChars)
       // R4.2 A5 补充：恢复重试的大输出同样落 artifact + 摘要（与首次执行一致）
       const output = await prepareToolTurnOutput(tc.name, raw, text => spillToolResult(runId, tc, text))
       result = output.content

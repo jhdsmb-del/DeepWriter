@@ -47,5 +47,7 @@ jobs:
 
       - name: Electron E2E (supported Windows desktop)
         if: runner.os == 'Windows'
-        run: node out/e2e.mjs
+        run: |
+          node out/e2e.mjs
+          node --test scripts/desktop-goal-mode.test.cjs
         shell: bash

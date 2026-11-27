@@ -7,6 +7,7 @@ import { contextBridge, ipcRenderer, webUtils } from 'electron'
 import type { ComposerDraftWrite, ComposerDraftWriteResult, PersistedComposerDraft } from '../shared/composerDraft'
 import type { ActivityEvent, RunSnapshot } from '../shared/activity'
 import type { RunBillingView } from '../shared/billing'
+import type { GoalSnapshot } from '../shared/goalMode'
 import type { WorkPlanSnapshot, WorkPlanUpdate } from '../shared/workPlan'
 import type { AttachmentRef, ChunkEvent, DsMessage, Settings, StoryConfig, StrongConstraintInput, SessionMeta, SessionMessageSnapshot, PermissionSettings, MemoryInfo, RenpyProjectInfo, RenpyLintResult, NarrativeSemanticReviewDecisionInput, NarrativeSemanticReviewPacket, NarrativeSemanticReviewDecisionResult, NarrativeLedgerScopeInput } from '../shared/types'
 import type { BranchGraph, GeneratePatchResult, ApplyPatchResult, RepairLoopResult } from '../main/galgame'
@@ -25,6 +26,7 @@ export interface ChatPayload {
   id: string
   sessionId?: string
   phase?: 'plan' | 'execute'
+  goalMode?: 'guided' | 'autonomous'
   planText?: string
   planAccess?: 'read_only'
   planApproval?: AgentPlanApproval
@@ -277,6 +279,12 @@ const api = {
   // ---- 运行记录与恢复（R4-4） ----
   runsList: (sessionId: string): Promise<unknown[]> => ipcRenderer.invoke('runs:list', { sessionId }),
   runsGet: (runId: string): Promise<unknown> => ipcRenderer.invoke('runs:get', { runId }),
+  runsGetGoal: (runId: string): Promise<GoalSnapshot | null> => ipcRenderer.invoke('runs:getGoal', { runId }),
+  onRunGoalUpdated: (cb: (update: { runId: string }) => void): (() => void) => {
+    const listener = (_event: unknown, update: { runId: string }): void => cb(update)
+    ipcRenderer.on('runs:goalUpdated', listener)
+    return () => ipcRenderer.removeListener('runs:goalUpdated', listener)
+  },
   runsGetWorkPlan: (runId: string): Promise<WorkPlanSnapshot | null> => ipcRenderer.invoke('runs:getWorkPlan', { runId }),
   onRunWorkPlanUpdated: (cb: (update: WorkPlanUpdate) => void): (() => void) => {
     const listener = (_event: unknown, update: WorkPlanUpdate): void => cb(update)
@@ -313,7 +321,7 @@ const api = {
     return () => ipcRenderer.removeListener('billing:updated', listener)
   },
   runsRecoverable: (): Promise<unknown[]> => ipcRenderer.invoke('runs:recoverable'),
-  runsResume: (runId: string, tokenBudget?: number, removeCallLimit?: true): Promise<{ ok: boolean; recoveryRequired?: boolean; storyEpochInvalidated?: boolean; waitingUser?: boolean; semanticReview?: NarrativeSemanticReviewPacket | null; pendingToolCalls?: unknown[]; message?: string; reason?: string }> => ipcRenderer.invoke('runs:resume', { runId, ...(tokenBudget !== undefined ? { tokenBudget } : {}), ...(removeCallLimit ? { removeCallLimit } : {}) }),
+  runsResume: (runId: string, tokenBudget?: number, removeCallLimit?: true, reauthorizeGoal?: true): Promise<{ ok: boolean; recoveryRequired?: boolean; storyEpochInvalidated?: boolean; waitingUser?: boolean; semanticReview?: NarrativeSemanticReviewPacket | null; pendingToolCalls?: unknown[]; message?: string; reason?: string }> => ipcRenderer.invoke('runs:resume', { runId, ...(tokenBudget !== undefined ? { tokenBudget } : {}), ...(removeCallLimit ? { removeCallLimit } : {}), ...(reauthorizeGoal ? { reauthorizeGoal } : {}) }),
   runsStoryRebase: (runId: string, branchId?: string): Promise<{ ok: boolean; storyScope: NarrativeLedgerScopeInput; sessionId: string; sourceRevision: number; sourceEpoch: number }> => ipcRenderer.invoke('runs:storyRebase', { runId, ...(branchId ? { branchId } : {}) }),
   runsRecoverInfo: (runId: string): Promise<unknown> => ipcRenderer.invoke('runs:recoverInfo', { runId }),
   runsRecoverDecide: (input: { runId: string; decision: 'confirm_applied' | 'retry_not_applied' | 'rollback_then_retry' | 'abandon'; note?: string }): Promise<{ ok: boolean }> => ipcRenderer.invoke('runs:recoverDecide', input),

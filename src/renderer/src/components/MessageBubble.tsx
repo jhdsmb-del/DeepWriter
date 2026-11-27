@@ -8,6 +8,7 @@ import { codePointLength, takeCodePoints } from '../../../shared/textMetrics'
 const Markdown = lazy(() => import('./Markdown'))
 import ActivityCard from './activity/ActivityCard'
 import WorkPlanProgress from './activity/WorkPlanProgress'
+import GoalProgress from './activity/GoalProgress'
 import FileSources from './FileSources'
 import LongWriteStatus from './LongWriteStatus'
 import Icon from './Icon'
@@ -299,7 +300,7 @@ const MessageBubble = memo(function MessageBubble({ msg, onOpenSettings }: { msg
           )}
         </span>
       </div>
-      {pausedRun && (
+      {pausedRun && !recoverableForMsg?.config?.goalMode && (
         <div className="ri-completion-actions" data-testid="waiting-user-actions">
           <button className="btn primary" onClick={() => void continuePausedRun()}>继续处理</button>
           <button className="ghost-btn danger" onClick={() => void abandonRun(runId).then((ok) => showToast(ok ? '任务已停止' : '停止失败', ok ? 'info' : 'error'))}>停止任务</button>
@@ -307,6 +308,7 @@ const MessageBubble = memo(function MessageBubble({ msg, onOpenSettings }: { msg
       )}
       {isLongWrite && longStatusVisible && <LongWriteStatus message={msg} runId={runId} />}
       {!isLongWrite && activeRun && streaming && <ActivityCard runId={runId} />}
+      {!isLongWrite && <GoalProgress runId={runId} />}
       {!isLongWrite && (runForMsg || recoverableForMsg) && <WorkPlanProgress runId={runId} />}
       {failure ? <div className="error-banner model-failure" role="alert"><b>{failure.title}</b><p>{failure.detail}</p>{failure.settings && onOpenSettings && <button type="button" className="ghost-btn" onClick={onOpenSettings}>打开模型设置</button>}<button type="button" className="ghost-btn" onClick={() => openRunInspector(runId)}>查看任务详情</button></div> : msg.status === 'error' && msg.error && <div className="error-banner">{msg.error}</div>}
       <div className="msg-bubble">

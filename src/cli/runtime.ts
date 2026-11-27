@@ -1,5 +1,8 @@
 import { AGENT_OUTPUT_PART } from '../main/jobs/agentContinuation'
 import { WORK_PLAN_TOOL } from '../shared/workPlan'
+import { GOAL_TOOL } from '../shared/goalMode'
+import { getRunGoal } from '../main/goalMode'
+import { goalCandidateTurns } from '../main/jobs/goalAnswer'
 import { randomUUID } from 'node:crypto'
 import { promises as fs } from 'node:fs'
 import { readFileSync } from 'node:fs'
@@ -92,7 +95,7 @@ export async function createCliRuntime(input: {
   const extensions = new ExtensionActivation({
     nodeExecutable: process.execPath,
     authorizeStart: async (id, hash, runId) => {
-      const allowed = startGrants.includes(id) || Boolean(input.ask && await input.ask(`启动第一方Node插件 ${id}（${hash}）？没有OS沙箱；只读当前冻结工作/文档目录。输入 allow 才启动`))
+      const allowed = startGrants.includes(id) || Boolean(cfgFor(runId).goalMode !== 'autonomous' && input.ask && await input.ask(`启动第一方Node插件 ${id}（${hash}）？没有OS沙箱；只读当前冻结工作/文档目录。输入 allow 才启动`))
       repo.saveRunEvidence(runId, `extension_start_grant_${randomUUID()}`, JSON.stringify({ id, packageHash: hash, decision: allowed ? 'allow' : 'deny', at: Date.now(), actor: 'cli', source: startGrants.includes(id) ? 'explicit_flag' : 'terminal_or_non_tty_denial' }))
       return allowed
     },
@@ -174,6 +177,7 @@ export async function createCliRuntime(input: {
     artifactDir: path.join(dataDir, 'artifacts'), getConfig: cfgFor,
     publishLongwriteArtifact: publishCliManuscript,
     modelCall: async (call) => {
+      const goalDraft = Boolean(cfgFor(call.runId).goalMode)
       const adapter = createModelCallAdapter({
         getApi: (runId) => {
           const frozen = cfgFor(runId).cliProvider as FrozenCliProvider | undefined
@@ -199,7 +203,7 @@ export async function createCliRuntime(input: {
       return (async function* () {
         try {
           for await (const event of iterable) {
-            if (event.type === 'text' && event.delta) emit('delta', { runId: call.runId, actor: call.purpose ?? 'writer', provisional: true, text: event.delta })
+            if (event.type === 'text' && event.delta) emit('delta', { runId: call.runId, actor: call.purpose ?? 'writer', provisional: true, ...(goalDraft && { goalCandidate: true }), text: event.delta })
             yield event
           }
         } catch (error) { throw safeProviderError(error) }
@@ -224,7 +228,7 @@ export async function createCliRuntime(input: {
         } }),
       getEnv: (runId) => {
         const cfg = cfgFor(runId)
-        return { pagedFileReads: cfg.pagedFileReads === true, workDir: String(cfg.workDir), docDir: String(cfg.docDir), permissionMode: (cfg.cliToolPolicy as { requireWriteApproval?: boolean } | undefined)?.requireWriteApproval === true && (name === 'write_file' || name === 'edit_file') ? 'safe' as const : cfg.permissionMode === 'auto' ? 'auto' as const : 'safe' as const, permissionWorkspaceRoot: typeof cfg.permissionWorkspaceRoot === 'string' ? cfg.permissionWorkspaceRoot : undefined, sessionId: String(cfg.sessionId), runId, signal: engine.abortSignal(runId) }
+        return { ...(cfg.goalMode === 'autonomous' ? { goalMode: 'autonomous' as const, webContentsId: 0 } : {}), pagedFileReads: cfg.pagedFileReads === true, workDir: String(cfg.workDir), docDir: String(cfg.docDir), permissionMode: (cfg.cliToolPolicy as { requireWriteApproval?: boolean } | undefined)?.requireWriteApproval === true && (name === 'write_file' || name === 'edit_file') ? 'safe' as const : cfg.permissionMode === 'auto' ? 'auto' as const : 'safe' as const, permissionWorkspaceRoot: typeof cfg.permissionWorkspaceRoot === 'string' ? cfg.permissionWorkspaceRoot : undefined, sessionId: String(cfg.sessionId), runId, signal: engine.abortSignal(runId) }
       }
       })(name, argsJson, toolCallId, runId, hooks)
     },
@@ -239,6 +243,11 @@ export async function createCliRuntime(input: {
   }
   const runText = (runId: string): string => {
     const cfg = cfgFor(runId)
+    if (cfg.goalMode) {
+      const goal = getRunGoal(repo, runId)
+      if (goal?.status === 'completed' && repo.getRun(runId)?.status === 'completed') return goalCandidateTurns(repo.getTurnsByRun(runId), goal.candidateTurnId).map(t => t.content).join('')
+      return goal?.blockedOn ? [goal.blockedOn.reason, goal.blockedOn.nextAction].filter(Boolean).join('\n') : ''
+    }
     if (cfg.runMode === 'longwrite' && cfg.longMode === true) {
       if (!repo.getManuscriptSegmentsByRun(runId).some(segment => segment.status === 'accepted' && segment.kind === 'prose')) return ''
       return readRunManuscript(repo, runId, repo.getRun(runId)?.status === 'completed' ? 'manuscript' : 'draft', hash => {
@@ -261,7 +270,7 @@ export async function createCliRuntime(input: {
       if (command.action === 'pause') void engine.pause(runId).catch(() => undefined)
     }, 150)
     let stepError: unknown = null
-    try { await engine.step(runId) } catch (error) { stepError = error } finally { clearInterval(poll); activeRun = null; await extensions.closeRun(runId) }
+    try { await engine.step(runId) } catch (error) { stepError = error } finally { clearInterval(poll); activeRun = null; permissions.revokeLeasesByRunId(runId); await extensions.closeRun(runId) }
     const row = repo.getRun(runId)!
     const cfg = cfgFor(runId)
     const content = runText(runId)
@@ -271,6 +280,7 @@ export async function createCliRuntime(input: {
       const existing = old.find((item) => item.msg_id === `m_${runId}_assistant`)
       repo.appendSessionMessage({ msg_id: `m_${runId}_assistant`, session_id: row.session_id, seq: existing?.seq ?? Math.max(0, ...old.map((item) => item.seq)) + 1, role: 'assistant', content, status: row.status === 'completed' ? 'done' : row.status, created_at: existing?.created_at ?? Date.now() })
     }
+    if (cfg.goalMode && row.status === 'completed' && content) emit('goal_answer', { runId, content })
     const usage = repo.getUsageTotals(runId)
     const attempts = repo.getProviderAttempts(runId)
     emit('result', { runId, sessionId: row.session_id, status: row.status, model: (cfg.cliProvider as FrozenCliProvider).config.model,
@@ -278,6 +288,7 @@ export async function createCliRuntime(input: {
         input_tokens: attempts.every((attempt) => attempt.input_tokens !== null) ? usage.input_tokens : null,
         output_tokens: attempts.every((attempt) => attempt.output_tokens !== null) ? usage.output_tokens : null }, amountStatus: 'unknown', amount: null,
       ...(row.status === 'completed' && isReadOnlyAgentPlan(cfg) ? { plan: savedAgentPlan(repo, runId) } : {}),
+      ...(cfg.goalMode ? { goal: getRunGoal(repo, runId) } : {}),
       errorCode: row.error_code, errorMessage: row.error_message, artifacts: repo.getArtifactsByRun(runId).filter((artifact) => artifact.artifact_type === 'manuscript') })
     if (stepError && !['waiting_user', 'recovery_required', 'failed', 'cancelled'].includes(row.status)) throw stepError
   }
@@ -291,14 +302,21 @@ export async function createCliRuntime(input: {
     const localTools = agent || options.tools === true
     const guardedAgent = agent && payload.mode === 'agent' && !payload.longMode
     const web = payload.mode === 'agent' && !payload.longMode && config.webAccessEnabled !== false && options['no-web'] !== true
-    const requestedTools = [...(guardedAgent ? [WORK_PLAN_TOOL, CONVERSATION_SEARCH_TOOL] : []), ...(localTools ? TOOL_ALLOW_LIST : []), ...(web ? WEB_TOOL_NAMES : []), ...(frozenExtensions?.toolSpecs.map(tool => tool.function.name) ?? [])]
+    const requestedTools = [...(guardedAgent && payload.goalMode ? [GOAL_TOOL] : []), ...(guardedAgent ? [WORK_PLAN_TOOL, CONVERSATION_SEARCH_TOOL] : []), ...(localTools ? TOOL_ALLOW_LIST : []), ...(web ? WEB_TOOL_NAMES : []), ...(frozenExtensions?.toolSpecs.map(tool => tool.function.name) ?? [])]
+    if (payload.goalMode && config.supportsTools === false) throw new Error('目标模式需要支持工具调用的模型。请切换模型后再开始。')
     const grantedTools = config.supportsTools === false ? [] : requestedTools
     const allowList = payload.phase === 'plan' ? planToolAllowList({ planMode: true, runMode: payload.mode, longMode: payload.longMode, agentPlan: payload.planAccess === 'read_only' ? { schemaVersion: 1, access: 'read_only' } : undefined, toolPolicy: { allowList: grantedTools } })! : grantedTools
     const hasTools = allowList.length > 0
     if (requestedTools.length && !hasTools) emit('notice', { message: '当前 Provider 声明不支持工具，本次仅文本回复；需要联网或文件操作请更换支持工具的模型，再用 --tool-support 明确启用。' })
     await startChatRun({
       repository: repo,
-      runKernel: { start: (args) => engine.start(args), step: (runId) => { activeStep = runStep(runId); return activeStep } },
+      runKernel: { start: async (args) => {
+        const accepted = await engine.start(args)
+        if (accepted.ok && args.newlyAccepted && args.config.goalMode === 'autonomous') {
+          await permissions.issueAutonomousTaskGrant({ webContentsId: 0, runId: args.runId, sessionId: args.sessionId, workspaceRoot: String(args.config.permissionWorkspaceRoot ?? '') })
+        }
+        return accepted
+      }, step: (runId) => { activeStep = runStep(runId); return activeStep } },
       loadSettings: async () => ({ model: config.model, historyBudgetTokens: 16000 }),
       buildConfig: (p, _settings, sessionId) => {
         const modelContext = cliModelContext(config)
@@ -312,7 +330,7 @@ export async function createCliRuntime(input: {
           memory: { projectPath: '', projectContent: '', userContent: '', projectBrief: projectBrief?.text }
         }) as unknown as Record<string, unknown>
         snapshot.toolPolicy = { allowList: planToolAllowList({ ...snapshot, toolPolicy: { allowList } }) ?? allowList }
-        if (guardedAgent) snapshot.cliToolPolicy = { schemaVersion: 1, requireWriteApproval: true }
+        if (guardedAgent) snapshot.cliToolPolicy = { schemaVersion: 1, requireWriteApproval: p.goalMode !== 'autonomous' }
         if (frozenExtensions) {
           snapshot.extensionsFrozen = frozenExtensions
           snapshot.frozenSystemMessages = [...snapshot.frozenSystemMessages as DsMessage[], ...skillMessages(frozenExtensions)]
@@ -355,7 +373,7 @@ export async function createCliRuntime(input: {
       await start({ id: `cli_${randomUUID()}`, sessionId: plan.sessionId, mode: 'agent', phase: 'execute', planApproval: { runId, hash } }, true)
     },
     rejectPlan(runId: string, hash: string) { rejectAgentPlan(repo, { runId, hash }); return savedAgentPlan(repo, runId) },
-    async agent(text: string, sessionId?: string) { await start({ id: `cli_${randomUUID()}`, sessionId, text, mode: 'agent', phase: 'execute' }, true) },
+    async agent(text: string, sessionId?: string, goalMode?: 'guided' | 'autonomous') { await start({ id: `cli_${randomUUID()}`, sessionId, text, mode: 'agent', phase: 'execute', ...(goalMode && { goalMode }) }, true) },
     async write(state: GrillMeState) {
       const canonical = canonicalizeGrillMePayload({ ...state, approvedOutline: state.approvedOutline! } as never, state, state.sessionId)
       await start({ id: `cli_${randomUUID()}`, sessionId: state.sessionId, text: state.originalTask, mode: 'longwrite', longMode: true, targetChars: state.targetChars, phase: 'execute', grillMe: canonical })
@@ -392,11 +410,13 @@ export async function createCliRuntime(input: {
       throw new Error('规划失败')
       } finally { planningController = null }
     },
-    async resume(runId: string) {
+    async resume(runId: string, renewGoalGrant = options['no-questions'] === true) {
       const row = repo.getRun(runId)
       if (!row) throw new Error('运行不存在')
       if (['completed', 'failed', 'cancelled'].includes(row.status)) throw new Error(`运行已结束：${row.status}；拒绝重复调用`)
       const cfg = cfgFor(runId)
+      if (renewGoalGrant && cfg.goalMode !== 'autonomous') throw new Error('只有原本自主执行的目标任务可以重新授权；其他运行不改变原权限')
+      if (cfg.goalMode === 'autonomous' && !renewGoalGrant) throw new Error('恢复这个自主目标需要重新授权：resume RUN --no-questions')
       if (!applySnapshotGate(repo, runId, cfg).ok) throw new Error('冻结快照版本不兼容')
       const frozen = cfg.cliProvider as FrozenCliProvider
       if (!frozen?.config) throw new Error('不是 CLI 运行，拒绝借用桌面配置恢复')
@@ -417,9 +437,10 @@ export async function createCliRuntime(input: {
       await engine.restore(runId)
       const restored = repo.getRun(runId)!
       if (restored.status === 'recovery_required' || restored.error_code === 'scene_semantic_review_required') throw new Error('需要明确恢复/语义审查决策：先运行 recover-info / review，不自动重放')
+      if (cfg.goalMode === 'autonomous') await permissions.issueAutonomousTaskGrant({ webContentsId: 0, runId, sessionId: row.session_id, workspaceRoot: String(cfg.permissionWorkspaceRoot ?? '') })
       await runStep(runId)
     },
     async interrupt(action: 'pause' | 'cancel') { planningController?.abort(); if (activeRun) await engine[action](activeRun) },
-    async close() { try { await extensions.close() } finally { setPermissionManager(null); setCheckpointStore(null); contextV2.close(); repo.close() } }
+    async close() { try { await extensions.close() } finally { permissions.revokeLeasesByWebContentsId(0); setPermissionManager(null); setCheckpointStore(null); contextV2.close(); repo.close() } }
   }
 }

@@ -2,6 +2,8 @@ import { FILE_WRITE_TOOLS } from '../shared/chatFiles'
 import { planToolAllowList } from '../shared/agentPlanPolicy'
 import { toolAllowed, isWebTool } from '../shared/agentToolPolicy'
 import { WORK_PLAN_TOOL } from '../shared/workPlan'
+import { GOAL_TOOL, isGoalModeConfig, type GoalSnapshot } from '../shared/goalMode'
+import { compactGoalToolSpecs, goalToolSpecForStage } from './goalMode'
 import { consumeWorkSteering, workSteeringView } from './workSteering'
 import { withoutCanonicalUser } from './liveUserContext'
 import { isWorkFileTool } from '../shared/workFileTools'
@@ -530,7 +532,7 @@ export interface ModelCallOpts {
 }
 
 export function createModelCallAdapter(opts: ModelCallOpts) {
-  return async (input: { runId: string; phase: string; turnSeq: number; round: number; messages: DsMessage[]; purpose?: 'writer' | 'critic' | 'editor'; liveToolProjection?: LiveToolProjection; logicalCallId?: string; beforeProviderAttempt?: (input: { innerAttempt: number; logicalCallId: string; request?: { bodyJson: string; model: string; maxTokens: number }; costQuote?: ProviderCostQuote }) => void | Promise<void> }): Promise<AsyncIterable<ModelEvent>> => {
+  return async (input: { runId: string; phase: string; turnSeq: number; round: number; messages: DsMessage[]; purpose?: 'writer' | 'critic' | 'editor'; liveToolProjection?: LiveToolProjection; goalStage?: GoalSnapshot['status']; logicalCallId?: string; beforeProviderAttempt?: (input: { innerAttempt: number; logicalCallId: string; request?: { bodyJson: string; model: string; maxTokens: number }; costQuote?: ProviderCostQuote }) => void | Promise<void> }): Promise<AsyncIterable<ModelEvent>> => {
     // R4.1 SNAPSHOT-SETTINGS-01 / R4.2 A3：API 参数取自 run 创建时的不可变 config 快照，
     // 运行中修改全局设置不影响已启动 run；credential 与快照 origin 绑定（不存明文 key）。
     // R4.5 Gate 5（复审 S-03）：apiKey 一律由 getApi(runId) 按 snapshot 的 credentialRef 解析
@@ -583,8 +585,9 @@ export function createModelCallAdapter(opts: ModelCallOpts) {
     // 旧计划无工具；显式只读计划仅暴露冻结交集；'*' 仅普通 agent 模式语义。
     const allowList = allowListFromConfig(config)
     let tools: DsTool[] | undefined
-    if (purpose === 'writer' && allowList && api.supportsTools !== false) {
-      const merged = [...buildToolSpecs(true), ...await (opts.getToolSpecs?.(input.runId) ?? [])]
+    if (purpose === 'writer' && (allowList || isGoalModeConfig(config)) && api.supportsTools !== false) {
+      const planningGoal = isGoalModeConfig(config) && (input.goalStage ?? 'planning') === 'planning'
+      const merged = [...(planningGoal ? [] : buildToolSpecs(true)), ...(isGoalModeConfig(config) ? [goalToolSpecForStage(input.goalStage)] : []), ...await (opts.getToolSpecs?.(input.runId) ?? [])]
       const names = new Set<string>()
       for (const tool of merged) {
         const name = tool?.function?.name
@@ -592,7 +595,8 @@ export function createModelCallAdapter(opts: ModelCallOpts) {
         if (names.has(name)) throw new Error('extension_tool_name_conflict')
         names.add(name)
       }
-      tools = merged.filter((tool) => checkToolAllowed(tool.function.name, allowList))
+      tools = merged.filter((tool) => tool.function.name === GOAL_TOOL ? isGoalModeConfig(config) : checkToolAllowed(tool.function.name, allowList))
+      if (isGoalModeConfig(config) && (frozenToolReadWindow(config,api.profileId) ?? 8192) <= 16384) tools = compactGoalToolSpecs(tools)
     }
 
     let prefix = purpose === 'writer' ? await opts.buildPrefix(config, input.round) : []
@@ -875,7 +879,7 @@ export interface ToolExecOpts {
   searchConversation?: (runId: string, args: Record<string, unknown>, readBudgetChars?: number) => ConversationSearchPage
   readAttachedZip?: (runId: string, args: Record<string, unknown>, signal?: AbortSignal, readBudgetChars?: number) => Promise<string | (Pick<ToolResult, 'message' | 'sources'> & { ok?: boolean })>
   getSignal: (runId: string) => AbortSignal | undefined
-  getEnv: (runId: string) => { pagedFileReads?: boolean; workDir: string; docDir: string; permissionMode?: import('../shared/types').PermissionMode; permissionWorkspaceRoot?: string; sessionId: string; signal?: AbortSignal; webContentsId?: number }
+  getEnv: (runId: string) => { goalMode?: 'guided' | 'autonomous'; pagedFileReads?: boolean; workDir: string; docDir: string; permissionMode?: import('../shared/types').PermissionMode; permissionWorkspaceRoot?: string; sessionId: string; signal?: AbortSignal; webContentsId?: number }
   /** R4.3 Gate 2：快照工具白名单（executor 双层强制第二层）；undefined 表示无快照约束（兼容异常路径） */
   getAllowList?: (runId: string) => string[] | undefined
   getProviderWeb?: (runId: string, toolCallId: string, hooks?: ToolExecutionHooks) => ProviderWebToolExecutor | undefined
@@ -932,7 +936,7 @@ export function createToolExecutor(opts: ToolExecOpts) {
       const budget = hooks?.readBudgetChars === undefined ? requested : requested === undefined ? hooks.readBudgetChars : Math.min(hooks.readBudgetChars, requested)
       return opts.readAttachedZip!(runId, request, signal, budget)
     } : undefined
-    const res: ToolResult = await executeTool(name, args, env.docDir, { searchConversation: opts.searchConversation ? (query, budget) => opts.searchConversation!(runId, query, budget) : undefined, nonInteractiveLocalRead: hooks?.nonInteractiveLocalRead, includeFileDiff: false, pagedFileReads: env.pagedFileReads, readBudgetChars: hooks?.readBudgetChars, workDir: env.workDir, docDir: env.docDir, permissionMode: env.permissionMode, permissionWorkspaceRoot: env.permissionWorkspaceRoot, sessionId: env.sessionId, signal, webContentsId: env.webContentsId, runId, toolCallId, providerWeb, readAttachment })
+    const res: ToolResult = await executeTool(name, args, env.docDir, { searchConversation: opts.searchConversation ? (query, budget) => opts.searchConversation!(runId, query, budget) : undefined, nonInteractiveLocalRead: hooks?.nonInteractiveLocalRead, includeFileDiff: false, pagedFileReads: env.pagedFileReads, readBudgetChars: hooks?.readBudgetChars, workDir: env.workDir, docDir: env.docDir, goalMode: env.goalMode, permissionMode: env.permissionMode, permissionWorkspaceRoot: env.permissionWorkspaceRoot, sessionId: env.sessionId, signal, webContentsId: env.webContentsId, runId, toolCallId, providerWeb, readAttachment })
     const writtenFile = res.ok && FILE_WRITE_TOOLS.some(tool => tool === name) && !(name === 'edit_file' && res.edit?.count === 0) && typeof res.path === 'string'
       ? { path: res.path, canonicalPath: await fsp.realpath(res.path).catch(() => undefined), ...(typeof res.name === 'string' ? { name: res.name } : {}), ...(typeof res.size === 'number' ? { size: res.size } : {}) } : undefined
     // R4.2 A4：backupId 随结果落库（rollback_then_retry 决策需要 checkpoint 恢复依据）

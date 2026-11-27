@@ -73,6 +73,13 @@ export function humanText(type: string, value: unknown): string {
     const text = [`${line(data.runId)} · ${line(data.status)}${data.phase ? ` / ${line(data.phase)}` : ''}${data.model ? ` · ${line(data.model)}` : ''}`]
     if (data.elapsedMs !== undefined) text.push(`用时 ${(Number(data.elapsedMs) / 1000).toFixed(1)} s · 请求 ${usage.calls ?? '?'} · 输入 ${usage.input_tokens ?? '?'} / 输出 ${usage.output_tokens ?? '?'} tokens · 金额未知`)
     if (data.plan) { const plan = record(data.plan); text.push(`只读方案已保存；批准：approve ${line(plan.runId)} --hash ${line(plan.hash)}`) }
+    if (data.goal) {
+      const goal = record(data.goal), blocker = record(goal.blockedOn)
+      const labels: Record<string,string> = { planning:'正在拆解', active:'执行中', reviewing:'核对交付', completed:'已完成', blocked:'等待条件', stopped:'已停止', failed:'失败' }
+      text.push(`目标 · ${labels[String(goal.status)] ?? line(goal.status)}：${line(goal.objective, 500)}`)
+      for (const outcome of rows(goal.outcomes)) text.push(`${outcome.status === 'done' ? '✓' : '○'} ${line(outcome.description, 320)}`)
+      if (blocker.reason) text.push([line(blocker.reason, 400), line(blocker.nextAction, 400)].filter(Boolean).join(' · '))
+    }
     const workSteps = rows(record(data.workPlan).steps)
     if (workSteps.length) text.push('任务清单', ...workSteps.map((step) => `${step.status === 'done' ? '✓' : step.status === 'in_progress' ? '●' : '○'} ${line(step.text, 1000)}`))
     if (workSteps.length && record(data.workPlan).blockedOn) text.push(`等待：${line(record(data.workPlan).blockedOn, 1000)}`)
@@ -90,7 +97,8 @@ export function createHumanOutput(writeOut: (text: string) => void, writeError: 
   let lastPhase = ''; let bodyOpen = false; let planningShown = false
   return (type: string, value: unknown): void => {
     const data = record(value)
-    if (type === 'delta' && data.actor === 'writer') { writeOut(String(data.text ?? '')); bodyOpen = true }
+    if (type === 'goal_answer') { writeOut(String(data.content ?? '') + '\n'); bodyOpen = false }
+    else if (type === 'delta' && data.actor === 'writer' && !data.goalCandidate) { writeOut(String(data.text ?? '')); bodyOpen = true }
     else if (type === 'notice') writeError(line(data.message, 1000) + '\n')
     else if (type === 'extension') writeError(`插件 ${line(data.id)} · ${line(data.state)} · ${line(data.protocolVersion)}\n`)
     else if (type === 'planning_delta') { if (!planningShown) { writeError('正在生成候选大纲（尚未确认）…\n'); planningShown = true } }

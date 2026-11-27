@@ -18,6 +18,12 @@ flowchart TD
   Projection --> UI
 ```
 
+## 普通 Agent 的目标监督
+
+Goal 与普通工作模式使用同一个运行引擎。开启 Goal 的运行才得到 `update_goal`：先保存用户原话和可检查的交付条件，接着执行；模型给出候选结果后，进入单独的验收轮。文件类成果要引用本次运行的真实工具回执，文字类成果可引用实际答复。缺项就继续，不能靠换一份更短的清单收尾。桌面和 CLI 从 SQLite 读取同一份目标状态。
+
+这里借鉴了 [Codex 的续跑规则](https://github.com/openai/codex/blob/main/codex-rs/ext/goal/templates/goals/continuation.md)：判断实际进展，不把重述计划当进展。澄清借鉴 [Grill Me 的决策树](https://github.com/mattpocock/skills/blob/main/skills/productivity/grilling/SKILL.md)：先查事实，只把影响交付的选择留给人。「不提问」把本次任务的取舍交给模型，不产生跨任务的工具授权。
+
 ## 进程边界
 
 Renderer 不直接获得 Node 能力，通过 `window.ds` 的明确接口调用主进程。主进程检查 sender、输入 schema、路径与授权。preload 和共享类型同步描述跨进程契约。

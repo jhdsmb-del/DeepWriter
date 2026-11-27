@@ -28,7 +28,7 @@ export type { AgentEnv } from './tools'
 /** R4.2 A2：从 AgentEnv 构造权限判定 identity（缺省字段不参与 lease 匹配） */
 export function identityFromEnv(env?: AgentEnv): PermissionIdentity {
   if (!env) return {}
-  return { webContentsId: env.webContentsId, sessionId: env.sessionId, runId: env.runId, signal: env.signal, permissionMode: env.permissionMode, workspaceRoot: env.permissionWorkspaceRoot, legacyReadRoots: [env.workDir, env.docDir], nonInteractive: env.nonInteractiveLocalRead }
+  return { webContentsId: env.webContentsId, sessionId: env.sessionId, runId: env.runId, signal: env.signal, permissionMode: env.permissionMode, workspaceRoot: env.permissionWorkspaceRoot, legacyReadRoots: [env.workDir, env.docDir], nonInteractive: env.nonInteractiveLocalRead, goalMode: env.goalMode, commandCwd: env.workDir }
 }
 
 let permissionManager: PermissionManager | null = null
@@ -272,6 +272,7 @@ function isWithin(p: string, root: string): boolean {
 async function readPermission(p: string, defaultDir: string, env?: AgentEnv): Promise<PermissionDecision> {
   if (env?.nonInteractiveLocalRead && !(await withinReal(p, env.workDir)) && !(await withinReal(p, env.docDir))) return { action: 'deny', reason: '后台读取范围之外的路径需要额外授权，当前不允许发起交互确认' }
   if (permissionManager) return permissionManager.decide('path', await resolveRealPath(path.resolve(p)), { ...identityFromEnv(env), operation: 'read' })
+  if (env?.goalMode === 'autonomous') return { action: 'deny', reason: '自主任务授权服务不可用，文件未读取' }
   const roots = [env?.workDir, env?.docDir, defaultDir, app.getPath('temp')].filter((r): r is string => Boolean(r))
   try {
     const norm = await resolveRealPath(path.resolve(p))
@@ -296,6 +297,7 @@ export async function fileOperationPermission(p: string, defaultDir: string, env
   const target = await resolveRealPath(path.resolve(p))
   const resolvedOperation = operation === 'write' ? (await fs.stat(target).catch(() => null)) ? 'overwrite' : 'create' : operation
   if (permissionManager) return permissionManager.decide('path', target, { ...identityFromEnv(env), operation: resolvedOperation })
+  if (env?.goalMode === 'autonomous') return { action: 'deny', reason: '自主任务授权服务不可用，文件未写入' }
   const allowed = await assertPathAllowed(target, [env?.workDir ?? defaultDir, defaultDir])
   return { action: allowed ? 'allow' : 'deny', reason: allowed ? '已获得路径授权' : '路径写入未获批准' }
 }
@@ -634,6 +636,8 @@ export const agentTools: ToolDef[] = [
         const perm = await permissionManager.decide('command', cmd, { ...identityFromEnv(env), operation: 'command' })
         if (perm.action !== 'allow') return { ok: false, message: `命令未执行：${perm.reason}` }
         if (perm.reason === '只读命令白名单' && !isSafeAutoCommand(cmd)) return { ok: false, message: '命令包含 shell 元字符，已拒绝' }
+      } else if (env?.goalMode === 'autonomous') {
+        return { ok: false, message: '自主任务授权服务不可用，命令未执行' }
       } else if (!sessionTrusted) {
         const result = await dialog.showMessageBox({
           type: 'warning',

@@ -10,7 +10,7 @@ import { changesFor, undoEditArguments } from './changes'
 declare const __DEEPWRITER_VERSION__: string
 
 import { CliPromptInterrupted } from './terminal'
-const INTERACTIVE_HELP = '/new [标题] · /sessions · /session [ID] · /model [名称] · /agent 任务 · /plan 任务 · /approve RUN HASH · /reject-plan RUN HASH · /paste 多行输入 · /write 字数 任务 · /interview SESSION · /resume RUN · /sources [RUN] [OFFSET] · /changes [RUN] · /undo-edit RUN TOOL · /usage · /list · /help · /exit'
+const INTERACTIVE_HELP = '/new [标题] · /sessions · /session [ID] · /model [名称] · /agent 任务 · /goal [--no-questions] 任务 · /plan 任务 · /approve RUN HASH · /reject-plan RUN HASH · /paste 多行输入 · /write 字数 任务 · /interview SESSION · /resume RUN [--no-questions] · /sources [RUN] [OFFSET] · /changes [RUN] · /undo-edit RUN TOOL · /usage · /list · /help · /exit'
 
 export async function runInteractive(input: {
   runtime: CliRuntime; config: CliConfig; options: CliOptions; emit: Emit
@@ -63,6 +63,12 @@ export async function runInteractive(input: {
         if (!match) throw new Error('用法：/approve RUN HASH 或 /reject-plan RUN HASH')
         if (match[1] === 'approve') await runtime.approvePlan(match[2], match[3])
         else emit('plan', runtime.rejectPlan(match[2], match[3]))
+      } else if (task === '/goal' || task.startsWith('/goal ')) {
+        const args = task.slice(5).trim()
+        const autonomous = /^--no-questions(?:\s|$)/u.test(args)
+        const request = (autonomous ? args.slice('--no-questions'.length) : args).trim()
+        if (!request) process.stderr.write('用法：/goal [--no-questions] 任务\n')
+        else await runtime.agent(validatePrompt(request), sessionId, autonomous ? 'autonomous' : 'guided')
       } else if (task.startsWith('/agent ')) await runtime.agent(validatePrompt(task.slice(7)), sessionId)
       else if (task === '/agent') process.stderr.write('用法：/agent 任务；在当前工作目录启用本地文件/命令工具，写入与危险操作仍需授权。\n')
       else if (task === '/sources' || task.startsWith('/sources ')) {
@@ -85,7 +91,11 @@ export async function runInteractive(input: {
       }
       else if (task === '/usage') showUsage()
       else if (task === '/list') emit('list', { runs: runtime.repo.listRecentRuns(20).map((row) => ({ runId: row.run_id, status: row.status, phase: row.phase, errorCode: row.error_code })) })
-      else if (task.startsWith('/resume ')) await runtime.resume(required(task.slice(8), 'RUN'))
+      else if (task.startsWith('/resume ')) {
+        const match = /^\/resume\s+(\S+)(?:\s+(--no-questions))?$/.exec(task)
+        if (!match) throw new Error('用法：/resume RUN [--no-questions]')
+        await runtime.resume(match[1], Boolean(match[2]))
+      }
       else if (task.startsWith('/interview ')) await interactiveWrite(getState(task.slice(11)))
       else if (task.startsWith('/write ')) {
         const match = /^\/write\s+(\d+)\s+([\s\S]+)$/.exec(task)

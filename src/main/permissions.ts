@@ -21,6 +21,9 @@ export interface PermissionIdentity extends PermissionContext {
   sessionId?: string
   runId?: string
   signal?: AbortSignal
+  /** Host-owned consent; a persisted flag alone is not authority. */
+  goalMode?: 'guided' | 'autonomous'
+  commandCwd?: string
 }
 
 /** R4.2 A2：owner-scoped permission lease（临时完全访问只能影响明确的 window/session/run/scope） */
@@ -37,6 +40,9 @@ export interface PermissionLease {
 }
 
 export interface PermissionManager {
+  /** Memory-only project grant. New starts and explicit reauthorization are the only issuers. */
+  issueAutonomousTaskGrant(input: { webContentsId: number; sessionId: string; runId: string; workspaceRoot: string }): Promise<void>
+  revokeAutonomousTaskGrant(runId: string): void
   getSettings(): PermissionSettings
   updateSettings(s: PermissionSettings): Promise<void>
   decide(type: PermissionTargetType, target: string, identity?: PermissionIdentity): Promise<PermissionDecision>
@@ -169,6 +175,36 @@ export function isSafeAutoCommand(cmd: string): boolean {
   return true
 }
 
+/** These are Node-native commands, not spawned executables. Every file
+ * operand is authorized independently before the native implementation runs.
+ * General programs (including git, interpreters and build tools) require an
+ * existing exact command allow rule: a cwd is not an OS sandbox. */
+function autonomousNativeReads(cmd: string, cwd: string): { paths: string[]; filesOnly: boolean } | null {
+  const argv = parseCommandLine(cmd)
+  if (!argv) return null
+  const [program, ...args] = argv
+  if (program === 'pwd') return args.length === 0 ? { paths: [], filesOnly: false } : null
+  if (program === 'echo') return { paths: [], filesOnly: false }
+  const isOperand = (arg: string): boolean => Boolean(arg) && !arg.startsWith('-') && !(process.platform === 'win32' && arg.startsWith('/'))
+  if (program === 'dir' || program === 'ls') {
+    const paths = args.filter(arg => !['-la', '-l', '-a', '/a', '/b'].includes(arg))
+    if (paths.length > 1 || paths.some(arg => !isOperand(arg))) return null
+    return { paths: [path.resolve(cwd, paths[0] ?? '.')], filesOnly: false }
+  }
+  if (program === 'type') {
+    if (!args.length || args.some(arg => !isOperand(arg))) return null
+    return { paths: args.map(arg => path.resolve(cwd, arg)), filesOnly: false }
+  }
+  if (program === 'findstr') {
+    const operands = args.filter(arg => !['/i', '-i'].includes(arg))
+    // No recursive directory walk: it could read files that have an explicit
+    // deny or sensitive-file policy beneath an otherwise readable directory.
+    if (operands.length < 2 || operands.some(arg => !isOperand(arg))) return null
+    return { paths: operands.slice(1).map(arg => path.resolve(cwd, arg)), filesOnly: true }
+  }
+  return null
+}
+
 const normPath = (p: string): string => path.normalize(p).replace(/\\/g, '/').toLowerCase()
 
 export function defaultAskUser(type: PermissionTargetType, target: string, _identity?: PermissionIdentity, view?: Omit<PermissionRequestView, 'id'>): Promise<AskUserResult> {
@@ -252,6 +288,7 @@ export function createPermissionManager(baseDir: string, askUser?: AskUserFn, in
   const askUserFn = askUser ?? defaultAskUser
   let cached: PermissionSettings | null = null
   const runGrants = new Set<string>()
+  const autonomousTasks = new Map<string, { webContentsId: number; sessionId: string; workspaceRoot: string }>()
   const sensitive = (target: string): boolean => /(^|[\\/])(\.[^\\/]+|credentials?|secrets?|tokens?)([\\/]|\.|$)|\.(pem|key|kdbx)$/iu.test(target)
   const ordinaryDocument = (target: string): boolean => /\.(md|txt|docx|pdf|xlsx|pptx|csv|tsv|epub)$/iu.test(target) && !sensitive(target)
   const workspaceTarget = async (target: string, identity?: PermissionIdentity): Promise<string | null> => {
@@ -344,6 +381,7 @@ export function createPermissionManager(baseDir: string, askUser?: AskUserFn, in
   }
   const askAndResolve = async (type: PermissionTargetType, target: string, mode: PermissionSettings['mode'], identity?: PermissionIdentity): Promise<PermissionDecision> => {
     if (identity?.signal?.aborted) return { action: 'deny', reason: '任务已停止，本次操作未执行' }
+    if (identity?.goalMode === 'autonomous') return { action: 'deny', reason: '自主任务不发起交互授权；此操作超出本任务授权范围' }
     if (identity?.nonInteractive) return { action: 'deny', reason: '后台读取需要额外授权，当前不允许发起交互确认' }
     const root = type === 'path' ? await workspaceTarget(target, identity) : null
     const lowRisk = Boolean(root && !sensitive(target) && identity?.operation && ['read', 'create', 'edit'].includes(identity.operation) && (identity.operation === 'read' || ordinaryDocument(target)))
@@ -381,6 +419,21 @@ export function createPermissionManager(baseDir: string, askUser?: AskUserFn, in
   }
 
   return {
+    async issueAutonomousTaskGrant(input) {
+      if (!input.runId || !input.sessionId || !Number.isSafeInteger(input.webContentsId) || input.webContentsId < 0 || !path.isAbsolute(input.workspaceRoot)) throw new Error('自主任务需要明确的运行身份和已选项目目录')
+      const grant = { webContentsId: input.webContentsId, sessionId: input.sessionId, workspaceRoot: '' }
+      autonomousTasks.set(input.runId, grant)
+      try {
+        const workspaceRoot = await fs.realpath(input.workspaceRoot)
+        if (workspaceRoot === path.parse(workspaceRoot).root || !(await fs.stat(workspaceRoot)).isDirectory()) throw new Error('自主任务不能授权整个磁盘或非目录路径')
+        if (autonomousTasks.get(input.runId) !== grant) throw new Error('自主任务授权已撤销')
+        grant.workspaceRoot = workspaceRoot
+      } catch (error) {
+        if (autonomousTasks.get(input.runId) === grant) autonomousTasks.delete(input.runId)
+        throw error
+      }
+    },
+    revokeAutonomousTaskGrant(runId) { autonomousTasks.delete(runId) },
     getSettings,
 
     async updateSettings(s) {
@@ -392,6 +445,54 @@ export function createPermissionManager(baseDir: string, askUser?: AskUserFn, in
 
     async decide(type, target, identity) {
       const s = getSettings()
+      // Autonomous consent is project/task scoped, never an off lease. Reject
+      // before legacy leases/rules so they cannot expand it or open a prompt.
+      if (identity?.goalMode === 'autonomous') {
+        const finish = async (action: PermissionAction, reason: string, ruleId?: string): Promise<PermissionDecision> => {
+          await writeAudit(type, target, action, ruleId, s.mode)
+          if (action === 'allow' && (identity.signal?.aborted || !identity.runId || autonomousTasks.get(identity.runId) !== grant)) return { action: 'deny', reason: '自主任务授权已撤销，本次操作未执行' }
+          return { action, reason, ...(ruleId ? { ruleId } : {}) }
+        }
+        if (identity.signal?.aborted) return finish('deny', '任务已停止，本次操作未执行')
+        const grant = identity.runId ? autonomousTasks.get(identity.runId) : undefined
+        if (!grant || grant.webContentsId !== identity.webContentsId || grant.sessionId !== identity.sessionId || !identity.workspaceRoot) return finish('deny', '自主任务授权已失效；恢复需要重新授权')
+        let root: string
+        try { root = await fs.realpath(identity.workspaceRoot) } catch { return finish('deny', '自主任务项目目录不可用，操作已拒绝') }
+        if (root !== grant.workspaceRoot) return finish('deny', '自主任务项目身份不匹配，操作已拒绝')
+        // All deny rules remain effective, including a deny after an allow.
+        const denied = await matchRule(s.rules.filter(rule => rule.action === 'deny'), type, target)
+        if (denied) return finish('deny', '权限策略规则禁止此操作', denied.id)
+        const rule = await matchRule(s.rules.filter(rule => rule.action === 'ask'), type, target)
+        if (rule) return finish('deny', '此操作要求逐项授权；自主任务已拒绝，不发起确认', rule.id)
+        if (type === 'path') {
+          if (!await workspaceTarget(target, identity)) return finish('deny', '目标位于自主任务授权项目之外，操作已拒绝')
+          if (sensitive(target)) return finish('deny', '敏感文件需要单独授权；自主任务已拒绝')
+          return finish('allow', '本自主任务已获项目文件操作授权')
+        }
+        if (!identity.commandCwd || !await workspaceTarget(identity.commandCwd, { ...identity, operation: 'read' })) return finish('deny', '命令工作目录不在自主任务授权项目内，已拒绝执行')
+        if (!parseCommandLine(target)) return finish('deny', '命令含未加引号的 shell 元字符或无法解析，已拒绝执行')
+        const cwdDenied = await matchRule(s.rules.filter(rule => rule.action === 'deny'), 'path', identity.commandCwd)
+        if (cwdDenied) return finish('deny', '权限策略规则禁止此命令工作目录', cwdDenied.id)
+        const allowedCommand = await matchRule(s.rules.filter(rule => rule.action === 'allow'), 'command', target)
+        if (allowedCommand) {
+          if (!allowedCommand.persistent) {
+            cached = { ...s, rules: s.rules.filter(rule => rule.id !== allowedCommand.id) }
+            await writeSettings()
+          }
+          return finish('allow', '命中已有的准确命令授权', allowedCommand.id)
+        }
+        const native = autonomousNativeReads(target, identity.commandCwd)
+        if (!native) return finish('deny', '自主任务仅使用原生项目读取及已准确授权的命令；此命令未执行')
+        for (const operand of native.paths) {
+          const readTarget = await deniedPathIdentity(operand)
+          if (!readTarget || !await workspaceTarget(readTarget, { ...identity, operation: 'read' })) return finish('deny', '命令读取目标位于自主任务授权项目之外，已拒绝执行')
+          if (sensitive(readTarget)) return finish('deny', '命令读取敏感文件需要单独授权，已拒绝执行')
+          const readDenied = await matchRule(s.rules.filter(rule => rule.action === 'deny' || rule.action === 'ask'), 'path', readTarget)
+          if (readDenied) return finish('deny', '命令读取目标受权限策略限制，已拒绝执行', readDenied.id)
+          if (native.filesOnly && !(await fs.stat(readTarget).catch(() => null))?.isFile()) return finish('deny', '自主项目搜索命令只接受明确的文件路径，请改用文件搜索工具')
+        }
+        return finish('allow', '本自主任务已获原生项目读取命令授权')
+      }
       // R4.2 A2：owner-scoped lease——只有 identity 匹配（window/session/run/scope）的 lease 才放行，
       // 不再存在"进程级全局 off 模式"（S-02）
       const lease = matchLease(identity, type)
@@ -456,6 +557,7 @@ export function createPermissionManager(baseDir: string, askUser?: AskUserFn, in
     },
 
     revokeLeasesByWebContentsId(webContentsId) {
+      for (const [id, task] of autonomousTasks) if (task.webContentsId === webContentsId) autonomousTasks.delete(id)
       for (const key of runGrants) if (JSON.parse(key)[0] === webContentsId) runGrants.delete(key)
       for (const [id, l] of leases) {
         if (l.webContentsId === webContentsId) leases.delete(id)
@@ -463,6 +565,7 @@ export function createPermissionManager(baseDir: string, askUser?: AskUserFn, in
     },
 
     revokeLeasesByRunId(runId) {
+      autonomousTasks.delete(runId)
       for (const key of runGrants) if (JSON.parse(key)[2] === runId) runGrants.delete(key)
       for (const [id, l] of leases) {
         if (l.runId === runId) leases.delete(id)
@@ -470,6 +573,7 @@ export function createPermissionManager(baseDir: string, askUser?: AskUserFn, in
     },
 
     revokeLeasesBySessionId(sessionId) {
+      for (const [id, task] of autonomousTasks) if (task.sessionId === sessionId) autonomousTasks.delete(id)
       for (const key of runGrants) if (JSON.parse(key)[1] === sessionId) runGrants.delete(key)
       for (const [id, l] of leases) {
         if (l.sessionId === sessionId) leases.delete(id)

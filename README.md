@@ -2,7 +2,7 @@
 
 Windows 和命令行上的文本写作助手。用自己的模型翻阅本地资料、修改稿件，或从大纲开始逐章写作。
 
-**[下载 Windows 安装版](https://github.com/jhdsmb-del/DeepWriter/releases/download/v8.1.0/DeepWriter-8.1.0-x64-setup.exe)** · [免安装版](https://github.com/jhdsmb-del/DeepWriter/releases/download/v8.1.0/DeepWriter-8.1.0-x64-portable.exe) · [完整包（桌面＋CLI）](https://github.com/jhdsmb-del/DeepWriter/releases/download/v8.1.0/DeepWriter-8.1.0-complete.zip)
+**[下载 Windows 安装版](https://github.com/jhdsmb-del/DeepWriter/releases/download/v8.2.0/DeepWriter-8.2.0-x64-setup.exe)** · [免安装版](https://github.com/jhdsmb-del/DeepWriter/releases/download/v8.2.0/DeepWriter-8.2.0-x64-portable.exe) · [完整包（桌面＋CLI）](https://github.com/jhdsmb-del/DeepWriter/releases/download/v8.2.0/DeepWriter-8.2.0-complete.zip)
 
 <details>
 <summary>用命令行下载</summary>
@@ -10,8 +10,8 @@ Windows 和命令行上的文本写作助手。用自己的模型翻阅本地资
 装有 GitHub CLI 的 Windows 用户可以在 PowerShell 里下载并解压完整包：
 
 ```powershell
-gh release download v8.1.0 -R jhdsmb-del/DeepWriter -p '*-complete.zip'
-Expand-Archive .\DeepWriter-8.1.0-complete.zip -DestinationPath .\DeepWriter
+gh release download v8.2.0 -R jhdsmb-del/DeepWriter -p '*-complete.zip'
+Expand-Archive .\DeepWriter-8.2.0-complete.zip -DestinationPath .\DeepWriter
 ```
 
 </details>
@@ -23,6 +23,14 @@ Expand-Archive .\DeepWriter-8.1.0-complete.zip -DestinationPath .\DeepWriter
 把完整包里的 `examples/east-bank` 设为 Agent 工作目录，问：「旧牌写的几点，后来改成几点，船最后几点离岸？分别给我原文。」
 
 [临时班次单（Word）](examples/east-bank/night-timetable.docx) 写的是计划，[值班簿](examples/east-bank/duty-note.md) 记的是实况。原计划 **21:40**，改点 **21:55**，真正离岸是 **22:03**。展开回复里的 **文件来源**，可以逐条对照。把工作目录换成自己的资料夹，就能用同样的方法核对访谈稿、通知和会议纪要。
+
+## 让 Agent 守着一个目标做完
+
+在普通 Agent 的输入框勾选 **Goal 模式**，试着交代：「对照班次单和值班簿，写一份更正通知，存成 通知.md。不要改原件。」它会把需求拆成可核对的结果；如果只是写出了通知内容、还没存文件，任务就没做完。
+
+不想中途替它选措辞或确认项目文件操作，再勾选 **不提问，自主执行**。这个选择只管本次任务。
+
+![在 Agent 输入框选中 Goal 模式，给阅览室写一份开放通知；自主执行可单独勾选](docs/images/goal-mode-8.2.png)
 
 ## 改一句对白
 
@@ -70,7 +78,7 @@ Expand-Archive .\DeepWriter-8.1.0-complete.zip -DestinationPath .\DeepWriter
 
 ## 在终端里用
 
-[只下载 CLI](https://github.com/jhdsmb-del/DeepWriter/releases/download/v8.1.0/DeepWriter-8.1.0-cli-win-x64.zip) 或选择带示例故事的完整包。两者都自带 Node 运行时。
+[只下载 CLI](https://github.com/jhdsmb-del/DeepWriter/releases/download/v8.2.0/DeepWriter-8.2.0-cli-win-x64.zip) 或选择带示例故事的完整包。两者都自带 Node 运行时。
 
 在完整包的解压目录运行这条命令，不用 API Key 就能读到剧本的选项、跳转目标和行号：
 
@@ -100,4 +108,4 @@ npm run dev
 
 </details>
 
-[8.1.0 更新说明](docs/RELEASE_NOTES_8.1.0.md) · [架构](docs/TECHNICAL_OVERVIEW.md) · [贡献指南](CONTRIBUTING.md) · [反馈问题](https://github.com/jhdsmb-del/DeepWriter/issues) · [MIT 许可证](LICENSE)
+[8.2.0 更新说明](docs/RELEASE_NOTES_8.2.0.md) · [架构](docs/TECHNICAL_OVERVIEW.md) · [贡献指南](CONTRIBUTING.md) · [反馈问题](https://github.com/jhdsmb-del/DeepWriter/issues) · [MIT 许可证](LICENSE)
