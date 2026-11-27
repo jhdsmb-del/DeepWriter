@@ -1251,12 +1251,18 @@ export const useStore = create<StudioStore>((set, get) => ({
   resumeRun: async (runId, tokenBudget, removeCallLimit, reauthorizeGoal) => {
     const ds = (window as any).ds
     if (!ds?.runsResume) return false
-    const goalResume = get().recoverableRuns.some(run => run.runId === runId && run.config.goalMode)
+    const recovery = get().recoverableRuns.find(run => run.runId === runId)
+    const goalResume = recovery?.config.goalMode && recovery.sessionId === get().currentSessionId
     const previousReply = goalResume ? get().messages.find(message => message.role === 'assistant' && (message.id === runId || message.id === `m_${runId}_assistant`)) : undefined
-    if (previousReply) set(state => ({ messages: state.messages.map(message => message.id === previousReply.id ? { ...message, content: '', status: 'thinking' } : message) }))
+    // A blocked goal can have no persisted assistant prose yet. Recreate only
+    // its presentation slot; its objective and execution remain main-owned.
+    const resumedReply: StudioUiMessage | undefined = !goalResume ? undefined : previousReply
+      ? { ...previousReply, content: '', status: 'thinking' }
+      : { id: runId, role: 'assistant', content: '', reasoning: '', status: 'thinking', usage: null, rounds: 0, toolEvents: [] }
+    if (resumedReply) set(state => ({ messages: previousReply ? state.messages.map(message => message.id === previousReply.id ? resumedReply : message) : [...state.messages, resumedReply] }))
     const rollbackReply = (): void => {
-      if (!previousReply) return
-      set(state => ({ messages: state.messages.map(message => message.id === previousReply.id && message.status === 'thinking' && !message.content ? previousReply : message) }))
+      if (!resumedReply) return
+      set(state => ({ messages: state.messages.flatMap(message => message.id === resumedReply.id && message.status === 'thinking' && !message.content ? previousReply ? [previousReply] : [] : [message]) }))
     }
     try {
       const r = await ds.runsResume(runId, tokenBudget, removeCallLimit, reauthorizeGoal)

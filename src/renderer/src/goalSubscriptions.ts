@@ -53,8 +53,8 @@ export function subscribeGoal(runId: string, listener: () => void): () => void {
     if (!goals.size) { unsubscribe?.(); unsubscribe = undefined }
   }
 }
-export function useGoal(runId: string): GoalSnapshot | null {
-  const subscribe = useCallback((listener: () => void) => subscribeGoal(runId, listener), [runId])
-  const snapshot = useCallback(() => getGoal(runId), [runId])
+export function useGoal(runId: string | null): GoalSnapshot | null {
+  const subscribe = useCallback((listener: () => void) => runId ? subscribeGoal(runId, listener) : () => undefined, [runId])
+  const snapshot = useCallback(() => runId ? getGoal(runId) : null, [runId])
   return useSyncExternalStore(subscribe, snapshot, () => null)
 }

@@ -19,6 +19,7 @@ import { modelFailureNotice, type ModelFailureNotice } from '../modelFailure'
 import { useWorkSteering } from '../hooks/useWorkSteering'
 import './WorkSteering.css'
 import './GoalMode.css'
+import { useGoal } from '../goalSubscriptions'
 
 export default function Composer({ onOpenSettings }: { onOpenSettings?: () => void }): React.ReactNode {
   const text = useStore((state) => state.composerText)
@@ -51,6 +52,7 @@ export default function Composer({ onOpenSettings }: { onOpenSettings?: () => vo
   const stop = useStore((s) => s.stop)
   const running = useStore((s) => s.running)
   const steering = useWorkSteering()
+  const steeringGoal = useGoal(steering.view?.runId ?? null)
   const longMode = useStore((s) => s.longMode)
   const targetChars = useStore((s) => s.targetChars)
   const pendingAttachments = useStore((s) => s.pendingAttachments)
@@ -270,7 +272,7 @@ export default function Composer({ onOpenSettings }: { onOpenSettings?: () => vo
         <span>{draftSaveError}</span>
         <button type="button" className="dw-text-btn" onClick={() => void flushDrafts().catch(() => undefined)}>重试保存</button>
       </div>}
-      {!!steering.view?.messages.length && (running || steering.view.messages.some(item => item.status === 'pending')) && <details className="composer-steering" data-testid="work-steering-receipts">
+      {!!steering.view?.messages.length && (running || !steeringGoal || steering.view.messages.some(item => item.status === 'pending')) && <details className="composer-steering" data-testid="work-steering-receipts">
         <summary>补充指令 · {steering.view.messages.filter(item => item.status === 'pending').length} 条待处理</summary>
         <ul>{steering.view.messages.filter((item, index) => item.status === 'pending' || index >= steering.view!.messages.length - 6).map(item => <li key={item.requestId}>
           {(item.status === 'applied' || steering.view!.messages.some(message => message.status === 'applied')) && <span>{item.status === 'applied' ? '已加入运行上下文' : '待处理'}</span>}<p>{item.text}</p>

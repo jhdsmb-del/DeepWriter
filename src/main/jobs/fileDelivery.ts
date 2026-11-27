@@ -23,7 +23,7 @@ function plain(text: string): string {
 }
 export function deliveryPaths(text: string): string[] {
   const quoted = [...text.matchAll(/[`"“「]([^`"”」\r\n]+\.[a-zA-Z0-9]{1,10})[`"”」]/gu)].map(match => match[1])
-  const remaining = text.replace(/[`"“「][^`"”」\r\n]+[`"”」]/gu, ' ').replace(/(?:写入|保存(?:到|为)?|创建|生成|导出|存到|写到)\s*/gu, ' ')
+  const remaining = text.replace(/[`"“「][^`"”」\r\n]+[`"”」]/gu, ' ').replace(/(?:写入|保存(?:到|为|成)?|创建|生成|导出|存(?:到|为|成)|写到)\s*/gu, ' ')
   const bare = [...remaining.matchAll(/(?:[A-Za-z]:[\\/]|\.{1,2}[\\/]|\/)?(?:[\p{L}\p{N}_.-]+[\\/])*[\p{L}\p{N}_-]+\.[a-zA-Z0-9]{1,10}/gu)].map(match => match[0])
   return [...new Set([...quoted, ...bare])].filter(item => !/^https?:/iu.test(item) && !/^\d+\.\d+$/u.test(item))
 }
@@ -36,7 +36,7 @@ export function fileDeliveryObligation(text: string, speaker: 'user' | 'assistan
   for (const sentence of sentences) {
     if (/(?:如何|怎么|怎样|示例|举例|解释|演示|只(?:需|要|给)|不要|无需|不必|不(?:要|用|必)写入|没有|尚未|未曾|未实际|尚不|并未|无法|不能|拒绝|未成功|未写入|未保存|未创建|not(?:\s+been)?\s+(?:written|saved|created)|how\s+to|example)/iu.test(sentence)) continue
     if (speaker === 'assistant' && /(?:你可以|您可以|可自行|建议你|you (?:can|could|should))/iu.test(sentence)) continue
-    const verb = /写入|写成|保存(?:到|为|成)?|写到|存到|存为|落盘|创建|生成|制作|做成|导出|create|write|save|export|generate/iu.exec(sentence)
+    const verb = /写入|写成|保存(?:到|为|成)?|写到|存到|存为|存成|落盘|创建|生成|制作|做成|导出|create|write|save|export|generate/iu.exec(sentence)
     if (!verb) continue
     // Bind targets to the write destination, not to every mentioned source.
     // A passive completion ("result.md 已生成") binds its preceding object.
@@ -45,10 +45,10 @@ export function fileDeliveryObligation(text: string, speaker: 'user' | 'assistan
     if (!paths.length && speaker === 'assistant') paths = deliveryPaths(sentence.slice(0, verb.index)).slice(-1)
     if (paths.length > 0 && !paths.some(file => documentPath.test(file))) continue
     paths = paths.filter(file => documentPath.test(file))
-    const stored = /(?:写入|保存|写到|存到|存为|落盘|导出|save|export)/iu.test(sentence)
+    const stored = /(?:写入|保存|写到|存到|存为|存成|落盘|导出|save|export)/iu.test(sentence)
     const fileObject = paths.length > 0 || /(?:文件|本地|工作目录|文档目录|Word|PDF|Excel|file)/iu.test(sentence) || (stored && /文档|稿件|报告|document/iu.test(sentence))
     const act = speaker === 'user'
-      ? directed || /(?:^\s*(?:写入|保存|创建|生成|制作|导出)|^\s*(?:只)?(?:把|将).{0,80}(?:写入|保存|创建|生成|导出)|\b(?:please|create|write|save|export|generate)\b)/iu.test(sentence)
+      ? directed || /(?:^\s*(?:写入|保存|存到|存为|存成|创建|生成|制作|导出)|^\s*(?:只)?(?:把|将).{0,80}(?:写入|保存|存到|存为|存成|创建|生成|导出)|\b(?:please|create|write|save|export|generate)\b)/iu.test(sentence)
       : /(?:已(?:经)?|完成|成功|\b(?:I have|saved|written|created|exported|generated)\b)/iu.test(sentence) || (promises && /(?:我(?:会|将|来)|马上|现在|\bI will\b)/iu.test(sentence))
     if (fileObject && act) { required = true; targets.push(...paths) }
   }

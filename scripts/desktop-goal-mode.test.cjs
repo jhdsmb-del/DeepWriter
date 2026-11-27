@@ -99,13 +99,18 @@ test('actual Goal composer: guided clarification, durable acceptance, task-only 
     await expect(autoProgress().getByRole('button',{name:'恢复并授权',exact:true})).toBeDisabled()
     await page.screenshot({path:path.join(shots,'goal-autonomous-recovery-860.png'),animations:'disabled',scale:'css'})
     const autonomousPaused=(await page.evaluate(()=>window.ds.runsListRecent(1)))[0]
+    await page.reload();await page.getByRole('button',{name:'查看并重新授权',exact:true}).click()
+    const recoveryPanel=page.getByRole('dialog',{name:'任务详情'}).getByTestId('goal-progress')
+    await expect(recoveryPanel).toContainText('缺少活动负责人姓名。')
     const refused=await page.evaluate(id=>window.ds.runsResume(id),autonomousPaused.runId)
     assert.equal(refused.reason,'goal_authorization_required')
-    await autoProgress().getByRole('textbox',{name:'补充目标信息'}).fill('负责人是小禾。')
-    await autoProgress().getByRole('checkbox',{name:'重新授权此任务的项目工具',exact:true}).check()
-    await autoProgress().getByRole('button',{name:'恢复并授权',exact:true}).click()
+    await recoveryPanel.getByRole('textbox',{name:'补充目标信息'}).fill('负责人是小禾。')
+    await recoveryPanel.getByRole('checkbox',{name:'重新授权此任务的项目工具',exact:true}).check()
+    await recoveryPanel.getByRole('button',{name:'恢复并授权',exact:true}).click()
+    await page.getByRole('button',{name:'关闭任务详情',exact:true}).click()
     await expect.poll(()=>Boolean(held)).toBe(true)
     await expect(page.getByRole('button',{name:'停止',exact:true})).toBeVisible()
+    await expect(page.locator('.msg.assistant .msg-bubble').last()).toContainText('正在准备自主通知。')
     const autonomous=(await page.evaluate(()=>window.ds.runsListRecent(1)))[0]
     assert.equal((await page.evaluate(id=>window.ds.runsGet(id),autonomous.runId)).config.goalMode,'autonomous')
     await page.screenshot({path:path.join(shots,'goal-active-stop-860.png'),animations:'disabled',scale:'css'})
@@ -131,7 +136,7 @@ test('actual Goal composer: guided clarification, durable acceptance, task-only 
     await app.evaluate(({BrowserWindow})=>BrowserWindow.getAllWindows().find(win=>!win.webContents.getURL().includes('window='))?.setContentSize(1280,800))
     await expect(page.locator('.toast')).toHaveCount(0,{timeout:6000})
     await page.screenshot({path:path.join(shots,'goal-mode-overview.png'),animations:'disabled',scale:'css'})
-    await fs.writeFile(path.join(shots,'desktop-result.json'),JSON.stringify({guidedRun:guided.runId,autonomousRun:autonomous.runId,calls:counts,checks:['default off','guided same-run reply','durable acceptance after reload','rejected candidate excluded from live and reloaded final reply','autonomy task-only','explicit autonomous reauthorization','actual stop','ordinary chat unchanged','860x720 layout','new session clears authorization','read-only excludes Goal']},null,2))
+    await fs.writeFile(path.join(shots,'desktop-result.json'),JSON.stringify({guidedRun:guided.runId,autonomousRun:autonomous.runId,calls:counts,checks:['default off','guided same-run reply','durable acceptance after reload','rejected candidate excluded from live and reloaded final reply','autonomy task-only','explicit autonomous reauthorization after reload','actual stop','ordinary chat unchanged','860x720 layout','new session clears authorization','read-only excludes Goal']},null,2))
   } catch(error) {
     if(page){console.error((await page.locator('body').innerText().catch(()=>'' )).slice(-4500));await page.screenshot({path:path.join(shots,'desktop-failure.png'),animations:'disabled'}).catch(()=>{});console.error('RUNS',JSON.stringify(await page.evaluate(async()=>Promise.all((await window.ds.runsListRecent(4)).map(row=>window.ds.runsGet(row.runId)))).catch(()=>[])))}
     throw error

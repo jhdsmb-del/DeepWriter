@@ -10,6 +10,7 @@ before(() => {
     export {createRunStorePort,createModelCallAdapter} from './src/main/runKernelAdapter';
     export {createRepository} from './src/main/db/repository';
     export {queueWorkSteering} from './src/main/workSteering';
+    export {fileDeliveryObligation} from './src/main/jobs/fileDelivery';
     export * from './src/main/goalMode'; export * from './src/shared/goalMode';`},
     bundle:true,platform:'node',format:'cjs',packages:'external',write:false,logLevel:'silent',alias:{electron:path.join(root,'src/cli/host.ts')} })
   const loaded={exports:{}};new Function('require','module','exports',built.outputFiles[0].text)(require,loaded,loaded.exports);api=loaded.exports
@@ -119,11 +120,13 @@ test('permission refusal stops remaining declared side effects with protocol rec
 test('file obligation cannot turn green through an answer-only goal review without a matching actual file',async()=>fixture(async f=>{
   f.respond=({calls,goal})=>calls===1?goalTool('define',define([{...outcome,description:'给出通知正文',check:'答案包含通知',verification:'answer'}])):
     goal.status==='reviewing'?goalTool('review'+calls,review(goal,'通知：末班船在22:03离岸。')):{text:'通知：末班船在22:03离岸。'}
-  await(await f.start('请把通知保存为通知.md，不要仅给正文。')).step('run')
+  await(await f.start('据值班簿撰写通知，存成通知.md，不改原件。')).step('run')
   const state=await f.engine.getState('run')
   assert.equal(state.run.status,'waiting_user');assert.notEqual(f.goal.status,'completed');assert.equal(f.goal.status,'blocked')
   await assert.rejects(fs.access(path.join(f.dir,'通知.md')))
   assert.equal(f.goal.outcomes[0].status,'pending')
+  assert.deepEqual(api.fileDeliveryObligation('据值班簿撰写通知，存成通知.md，不改原件。','user'),{required:true,targets:['通知.md']})
+  for(const question of ['教我怎么存成通知.md。','请解释如何把通知存成通知.md。','不要存成通知.md，只给我正文。'])assert.equal(api.fileDeliveryObligation(question,'user').required,false,question)
 }))
 
 test('recovery never replays an unknown write, and a paused candidate with length fragments is reviewed and replaced as one answer',async()=>{

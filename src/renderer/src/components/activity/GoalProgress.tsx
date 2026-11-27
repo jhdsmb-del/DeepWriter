@@ -38,6 +38,12 @@ export default memo(function GoalProgress({ runId, detail = false }: { runId: st
     if (!canContinue) return
     setBusy(true); setError(null)
     try {
+      const state = useStore.getState()
+      if (recovery?.sessionId && state.currentSessionId !== recovery.sessionId) {
+        if (state.running || state.submitting) throw new Error('请先结束当前运行，再恢复此目标。')
+        await state.switchSession(recovery.sessionId)
+      }
+      useStore.getState().setMode('agent')
       if (needsAnswer) {
         const owner = recovery?.sessionId ?? sessionId
         // A failed resume must not enqueue the same accepted answer twice.
